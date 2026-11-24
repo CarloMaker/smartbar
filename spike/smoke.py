@@ -469,6 +469,10 @@ def main():
             if pp.image_of_pid(pid) == 'notepad.exe':
                 subprocess.run(['taskkill', '/PID', str(pid), '/T', '/F'], capture_output=True)
         time.sleep(1.0)
+        try:
+            os.remove(sample)     # il file di prova: ora che Blocco note e' chiuso si puo' togliere
+        except OSError:
+            pass
         clean_notepad_sessions(sample)
         finish_test()
 
