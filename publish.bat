@@ -24,13 +24,14 @@ echo === SmartBar: pubblicazione di una versione ===
 echo.
 
 rem --- il collegamento a GitHub: senza, la release non si puo' creare ---
-gh auth status >nul 2>nul
+rem (call davanti a gh e a dotnet: se fossero installati come file .cmd, senza call lo script non tornerebbe piu' qui)
+call gh auth status >nul 2>nul
 if not errorlevel 1 goto :modifiche
 echo GitHub CLI non e' collegato all'account GitHub.
 choice /c SN /n /m "Lo collego ora? Apre il browser e si fa una volta sola [S/N]: "
 if not errorlevel 1 goto :annullata
 if errorlevel 2 goto :annullata
-gh auth login --hostname github.com --git-protocol https --web
+call gh auth login --hostname github.com --git-protocol https --web
 if errorlevel 1 goto :errore
 
 :modifiche
@@ -79,7 +80,7 @@ set "out=%~dp0artifacts\SmartBar-%tag%"
 if exist "%out%" rmdir /s /q "%out%"
 echo.
 echo --- Compilazione di SmartBar.exe, versione %version% ---
-dotnet publish src\SmartBar\SmartBar.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:DebugType=none -p:Version=%version% -o "%out%"
+call dotnet publish src\SmartBar\SmartBar.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:DebugType=none -p:Version=%version% -o "%out%"
 if errorlevel 1 goto :errore
 if not exist "%out%\SmartBar.exe" goto :errore
 for /f "delims=" %%i in ('powershell -NoProfile -Command "(Get-Item '%out%\SmartBar.exe').VersionInfo.ProductVersion" 2^>nul') do echo Compilato: SmartBar.exe, versione %%i
@@ -99,7 +100,7 @@ if errorlevel 1 goto :errore
 echo.
 echo --- Release su GitHub, con SmartBar.exe allegato ---
 set "notes=%TEMP%\smartbar-release.txt"
-gh release create %tag% "%out%\SmartBar.exe" --title "SmartBar %tag%" --generate-notes > "%notes%"
+call gh release create %tag% "%out%\SmartBar.exe" --title "SmartBar %tag%" --generate-notes > "%notes%"
 if errorlevel 1 goto :errore
 set "url="
 for /f "usebackq delims=" %%i in ("%notes%") do set "url=%%i"
