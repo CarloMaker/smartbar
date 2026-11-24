@@ -1,2 +1,4 @@
 # Stessi fine riga per tutti, qualunque sia il computer: nel repository si salvano con LF
 * text=auto
+# Gli script batch vogliono i fine riga di Windows, altrimenti saltano i punti di salto
+*.bat text eol=crlf

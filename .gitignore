@@ -5,6 +5,9 @@ dist/
 dist-prev/
 dist-new/
 
+# Gli eseguibili creati da publish.bat per le release
+artifacts/
+
 # Prove automatiche: le catture di schermo e i file temporanei restano sul computer
 spike/out/
 __pycache__/
