@@ -1,0 +1,16 @@
+# Build e pubblicazione: si rifanno con dotnet build / dotnet publish
+bin/
+obj/
+dist/
+dist-prev/
+dist-new/
+
+# Prove automatiche: le catture di schermo e i file temporanei restano sul computer
+spike/out/
+__pycache__/
+*.pyc
+
+# Strumenti locali
+.video_agent/
+.vs/
+*.user

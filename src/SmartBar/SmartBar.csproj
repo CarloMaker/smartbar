@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>SmartBar</RootNamespace>
+    <AssemblyName>SmartBar</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ApplicationUseCompatibleTextRendering>false</ApplicationUseCompatibleTextRendering>
+    <ApplicationVisualStyles>true</ApplicationVisualStyles>
+    <!-- Le finestre di questa app non passano mai dalla finestra di progettazione: gli avvisi che chiedono la
+         serializzazione delle proprieta' (WFO1000) non si applicano. Il DPI resta anche nel manifest perche' serve
+         gia' pronto quando si ripristinano le finestre da riga di comando, prima dell'avvio dell'interfaccia (WFO0003). -->
+    <NoWarn>$(NoWarn);WFO1000;WFO0003</NoWarn>
+  </PropertyGroup>
+
+</Project>
