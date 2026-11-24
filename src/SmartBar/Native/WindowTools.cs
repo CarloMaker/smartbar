@@ -542,6 +542,21 @@ internal static class WindowTools
         return coversMonitor && info.Work.Height < info.Monitor.Height;
     }
 
+    /// <summary>
+    /// Riporta la finestra dov'era, con la posizione e la misura del suo <paramref name="placement"/>. Prima la si
+    /// mette gia' li', con uno spostamento: se infatti in quel momento la finestra "sta" su uno schermo di scala
+    /// diversa da quello di prima (per l'app parcheggiata sotto lo schermo principale), Windows ridimensiona il
+    /// placement nel passaggio da una scala all'altra: una finestra dello schermo al 150% tornava una volta e mezza
+    /// piu' grande.
+    /// </summary>
+    public static void PutBack(IntPtr hwnd, ref WINDOWPLACEMENT placement)
+    {
+        var normal = (Rectangle)placement.NormalPosition;
+        _ = Win32.SetWindowPos(hwnd, IntPtr.Zero, normal.Left, normal.Top, normal.Width, normal.Height,
+            Win32.SWP_NOZORDER | Win32.SWP_NOACTIVATE);
+        _ = Win32.SetWindowPlacement(hwnd, ref placement);
+    }
+
     public static bool IsForegroundOrOwned(IntPtr hwnd)
     {
         IntPtr foreground = Win32.GetForegroundWindow();

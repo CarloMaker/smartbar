@@ -8,9 +8,11 @@ namespace SmartBar.Core;
 internal static class ParkedOrphanRecovery
 {
     /// <summary>
-    /// Ritrova una finestra parcheggiata. Di norma e' ancora oltre il bordo destro. Se al momento della chiusura
-    /// era aperta a schermo e' rimasta li, sempre in primo piano e senza pulsante nella barra delle applicazioni:
-    /// vale anche quella, ma solo se e' in primo piano (una finestra che l'utente si e' gia' ripresa non lo e' piu').
+    /// Ritrova una finestra parcheggiata. Di norma e' ancora nel parcheggio, fuori da tutti gli schermi (o nel posto
+    /// di prima, oltre il bordo destro del principale: le finestre parcheggiate quando c'era un solo schermo, con un
+    /// secondo acceso dopo si ritrovano in mezzo a quello). Se al momento della chiusura era aperta a schermo e' rimasta
+    /// li, sempre in primo piano e senza pulsante nella barra delle applicazioni: vale anche quella, ma solo se e' in
+    /// primo piano (una finestra che l'utente si e' gia' ripresa non lo e' piu').
     /// </summary>
     public static IntPtr Find(SavedWindow saved, List<IntPtr> windows)
     {
@@ -39,7 +41,8 @@ internal static class ParkedOrphanRecovery
                 continue;
             }
 
-            if (Win32.GetWindowRect(hwnd, out RECT rect) && rect.Left >= ScreenGeometry.MonitorBounds.Right - 1)
+            if (Win32.GetWindowRect(hwnd, out RECT rect)
+                && (!ScreenGeometry.IsOnScreen(rect) || ScreenGeometry.IsAtFirstSpot(rect)))
             {
                 offScreen.Add(hwnd);
             }
@@ -84,7 +87,7 @@ internal static class ParkedOrphanRecovery
                 ShowCmd = item.ShowCmd == Win32.SW_SHOWMAXIMIZED ? Win32.SW_SHOWMAXIMIZED : Win32.SW_SHOWNA,
                 NormalPosition = new RECT(item.Left, item.Top, item.Right, item.Bottom),
             };
-            _ = Win32.SetWindowPlacement(hwnd, ref placement);
+            WindowTools.PutBack(hwnd, ref placement);
             if (!item.WasTopmost)
             {
                 _ = Win32.SetWindowPos(hwnd, Win32.HWND_NOTOPMOST, 0, 0, 0, 0,

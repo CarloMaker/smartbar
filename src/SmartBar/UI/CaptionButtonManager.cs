@@ -24,7 +24,10 @@ internal sealed class CaptionButtonManager : IDisposable
 
     private readonly Dictionary<IntPtr, CaptionButtonForm> _buttons = new();
     private readonly Dictionary<IntPtr, Measure> _measures = new();
+    private readonly Dictionary<IntPtr, uint> _dpi = new();          // la scala che la finestra aveva l'ultima volta
     private readonly HashSet<IntPtr> _asking = new();
+    private readonly HashSet<IntPtr> _settling = new();              // finestre appena passate a una scala diversa
+    private readonly System.Windows.Forms.Timer _settle = new() { Interval = 600 };
     private readonly Func<IntPtr, bool> _isParked;
     private readonly SynchronizationContext _sync;
 
@@ -34,6 +37,25 @@ internal sealed class CaptionButtonManager : IDisposable
     {
         _isParked = isParked;
         _sync = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
+        _settle.Tick += OnSettled;
+    }
+
+    /// <summary>
+    /// Le finestre passate da poco a uno schermo di scala diversa si sono risistemate: si rimesurano, perche' quello
+    /// che rispondevano mentre si risistemavano (titolo e pulsanti ancora da sistemare) non vale piu'.
+    /// </summary>
+    private void OnSettled(object? sender, EventArgs e)
+    {
+        _settle.Stop();
+        foreach (IntPtr hwnd in _settling.ToList())
+        {
+            _settling.Remove(hwnd);
+            if (_buttons.ContainsKey(hwnd))
+            {
+                _measures.Remove(hwnd);
+                Place(hwnd);
+            }
+        }
     }
 
     /// <summary>
@@ -130,6 +152,8 @@ internal sealed class CaptionButtonManager : IDisposable
     public void Remove(IntPtr hwnd)
     {
         _measures.Remove(hwnd);
+        _dpi.Remove(hwnd);
+        _settling.Remove(hwnd);
         _asking.Remove(hwnd);
         if (_buttons.Remove(hwnd, out CaptionButtonForm? button))
         {
@@ -272,6 +296,17 @@ internal sealed class CaptionButtonManager : IDisposable
     private Measure MeasureOf(IntPtr hwnd, in RECT window)
     {
         uint dpi = Win32.GetDpiForWindow(hwnd);
+        if (_dpi.TryGetValue(hwnd, out uint before) && before != dpi)
+        {
+            // passata a uno schermo di scala diversa: il programma si risistema per un momento (titolo, pulsanti), e
+            // quello che risponde in questo frangente, se lo si tenesse, lascerebbe il pulsante storto per sempre
+            _measures.Remove(hwnd);
+            _settling.Add(hwnd);
+            _settle.Stop();
+            _settle.Start();
+        }
+
+        _dpi[hwnd] = dpi;
         if (_measures.TryGetValue(hwnd, out Measure? known) && known.Width == window.Width && known.Height == window.Height
             && known.Dpi == dpi)
         {
@@ -285,6 +320,11 @@ internal sealed class CaptionButtonManager : IDisposable
             Dpi = dpi,
             Band = WindowTools.FindCaptionButtons(hwnd, askWindow: false)?.Band,
         };
+        if (_settling.Contains(hwnd))
+        {
+            return measure;    // intanto vale la stima rapida: la precisa si chiede quando si e' risistemata
+        }
+
         _measures[hwnd] = measure;
         AskLater(hwnd, measure);
         return measure;
@@ -327,6 +367,8 @@ internal sealed class CaptionButtonManager : IDisposable
 
     public void Dispose()
     {
+        _settle.Stop();
+        _settle.Dispose();
         foreach (CaptionButtonForm button in _buttons.Values)
         {
             button.Dispose();

@@ -90,6 +90,13 @@ def main():
         if not (notepad and charmap):
             raise RuntimeError('finestre di prova non aperte')
 
+        # Blocco note riapre la finestra dov'era rimasta l'ultima volta, magari su un altro schermo (di scala diversa,
+        # dove i conti tornano al pixel vicino): le finestre di prova si mettono sullo schermo principale, dove le
+        # misure di questa prova sono note
+        pp.move(notepad, 700, 150, 1100, 700)
+        pp.move(charmap, 200, 300, 491, 437)
+        time.sleep(1.0)
+
         s.ONLY = [s.pid_of(notepad), probe.pid]
         app = s.start_app()
         s.check('SmartBar (istanza di prova) si avvia e risponde ai comandi', s.wait_ready())

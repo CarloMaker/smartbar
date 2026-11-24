@@ -186,7 +186,46 @@ def wait_state(hwnd, state, timeout=4.0):
 
 
 def off_screen(hwnd):
-    return pp.rect(hwnd)[0] >= SCREEN_W
+    """La finestra parcheggiata non si vede su nessuno schermo: oltre il bordo destro se a destra non c'e' niente,
+    altrimenti sotto lo schermo principale (un posto a destra sarebbe sopra l'altro schermo)."""
+    return not on_any_screen(pp.rect(hwnd))
+
+
+class MONITORINFO(ctypes.Structure):
+    _fields_ = [('cbSize', wt.DWORD), ('rcMonitor', wt.RECT), ('rcWork', wt.RECT), ('dwFlags', wt.DWORD)]
+
+
+MONITORENUMPROC = ctypes.WINFUNCTYPE(wt.BOOL, wt.HANDLE, wt.HDC, ctypes.POINTER(wt.RECT), wt.LPARAM)
+u.GetMonitorInfoW = pp.proto(u, 'GetMonitorInfoW', wt.BOOL, wt.HANDLE, ctypes.POINTER(MONITORINFO))
+
+
+def monitors():
+    """(sinistra, alto, destra, basso) di ogni schermo acceso."""
+    found = []
+
+    @MONITORENUMPROC
+    def cb(hmon, _hdc, _rect, _):
+        info = MONITORINFO()
+        info.cbSize = ctypes.sizeof(info)
+        if u.GetMonitorInfoW(hmon, ctypes.byref(info)):
+            m = info.rcMonitor
+            found.append((m.left, m.top, m.right, m.bottom))
+        return True
+
+    u.EnumDisplayMonitors(None, None, cb, 0)
+    return found
+
+
+def on_any_screen(rect):
+    """Il rettangolo si vede su almeno uno schermo (basterebbe un solo pixel in comune)."""
+    return any(rect[0] < r and rect[2] > l and rect[1] < b and rect[3] > t for l, t, r, b in monitors())
+
+
+def panel_rect():
+    """Lo spazio che occupa una finestra parcheggiata aperta: da metà schermo fino alla barra, sullo schermo principale."""
+    work = wt.RECT()
+    u.SystemParametersInfoW(0x30, 0, ctypes.byref(work), 0)        # SPI_GETWORKAREA
+    return (SCREEN_W // 2, work.top, SCREEN_W - 84, work.bottom)
 
 
 def is_open(hwnd):
@@ -397,6 +436,12 @@ def main():
         button = wait_for(lambda: app_windows()[0].get(notepad), 10)
         check('il nostro pulsante compare accanto a Riduci a icona', bool(button), f'pulsante={pp.rect(button) if button else None}')
 
+        # Blocco note riapre la finestra dov'era rimasta l'ultima volta, magari su un altro schermo (di scala diversa,
+        # dove i conti tornano al pixel vicino): la si mette subito sullo schermo principale, dove le misure di questa
+        # prova sono note
+        pp.move(notepad, 700, 200, 1100, 700)
+        time.sleep(1.0)
+
         # dove lo mette: attaccato ai pulsanti di sistema veri, che finiscono al bordo destro visibile della finestra
         info = wait_for(lambda: attached(notepad), 6)
         check('il pulsante sta attaccato (due pixel) a sinistra dei pulsanti di sistema della finestra', info is not None,
@@ -431,7 +476,10 @@ def main():
         # parcheggio
         check('parcheggiata', park(notepad), f'rettangolo={pp.rect(notepad)}')
         parked = pp.rect(notepad)
-        check('la finestra è oltre il bordo destro', parked[0] >= SCREEN_W, f'rettangolo={parked}')
+        check('la finestra parcheggiata non si vede su nessuno schermo (con uno solo sta oltre il bordo destro)',
+              not on_any_screen(parked), f'rettangolo={parked} schermi={monitors()}')
+        check('la finestra parcheggiata resta della misura che aveva', parked[2] - parked[0] == original[2] - original[0]
+              and parked[3] - parked[1] == original[3] - original[1], f'parcheggiata={parked} prima={original}')
         buttons, rail, _card = app_windows()
         rail_rect = pp.rect(rail) if rail else None
         check('la barra è visibile e stretta', bool(rail) and bool(u.IsWindowVisible(rail)) and rail_rect[2] - rail_rect[0] <= 90,

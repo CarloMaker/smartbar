@@ -48,6 +48,7 @@ internal sealed class AppContext : ApplicationContext
         _service.Changed += OnParkedChanged;
         _service.Updated += () => _card.Invalidate();
         _hook.Raised += OnWinEvent;
+        _rail.DisplaysChanged += OnDisplaysChanged;
         CommandServer.Start(HandleCommand);
         StartupStep("finestre dell'app", clock);
 
@@ -66,7 +67,14 @@ internal sealed class AppContext : ApplicationContext
 
         _tick.Tick += OnTick;
         _tick.Start();
-        _sweep.Tick += (_, _) => _buttons.Sweep();
+        _sweep.Tick += (_, _) =>
+        {
+            _buttons.Sweep();
+
+            // rete di sicurezza per gli schermi cambiati senza che Windows avvertisse (per esempio: si e' solo
+            // spostato uno). Costa poco: guarda cinque numeri e fa qualcosa solo se sono cambiati
+            AdaptToScreens("nella rassegna");
+        };
         _sweep.Start();
         _recover.Tick += OnRecover;
         _recover.Start();
@@ -190,6 +198,21 @@ internal sealed class AppContext : ApplicationContext
         else if (Milliseconds(_outsideSince, now) >= LeaveMs)
         {
             _service.CollapseAll();
+        }
+    }
+
+    private void OnDisplaysChanged() => AdaptToScreens("perché Windows ha avvertito");
+
+    /// <summary>Gli schermi sono cambiati mentre l'app gira: la barra e le finestre parcheggiate si adattano.</summary>
+    private void AdaptToScreens(string why)
+    {
+        try
+        {
+            _service.AdaptToScreens();
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"Errore riadattando le finestre agli schermi ({why})", ex);
         }
     }
 

@@ -217,6 +217,18 @@ internal static class Win32
     [DllImport("user32.dll")]
     public static extern bool GetMonitorInfo(IntPtr monitor, ref MONITORINFO info);
 
+    public const int SM_XVIRTUALSCREEN = 76, SM_YVIRTUALSCREEN = 77, SM_CXVIRTUALSCREEN = 78, SM_CYVIRTUALSCREEN = 79;
+    public const int SM_CMONITORS = 80;
+    public const uint MONITORINFOF_PRIMARY = 1;
+
+    public delegate bool MonitorEnumProc(IntPtr monitor, IntPtr dc, ref RECT rect, IntPtr data);
+
+    [DllImport("user32.dll")]
+    public static extern int GetSystemMetrics(int index);
+
+    [DllImport("user32.dll")]
+    public static extern bool EnumDisplayMonitors(IntPtr dc, IntPtr clipRect, MonitorEnumProc callback, IntPtr data);
+
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     public static extern bool SetProp(IntPtr hwnd, string name, IntPtr data);
 

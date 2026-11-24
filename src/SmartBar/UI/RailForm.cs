@@ -79,6 +79,20 @@ internal sealed class RailForm : Form
     /// <summary>Tasto destro sull'anteprima: la finestra esce dal parcheggio e torna dov'era.</summary>
     public event Action<ParkedWindow>? PreviewReleased;
 
+    /// <summary>Windows avverte che gli schermi sono cambiati (uno si e' acceso, staccato, spostato).</summary>
+    public event Action? DisplaysChanged;
+
+    private const int WmDisplayChange = 0x007E;
+
+    protected override void WndProc(ref Message m)
+    {
+        base.WndProc(ref m);
+        if (m.Msg == WmDisplayChange)
+        {
+            DisplaysChanged?.Invoke();
+        }
+    }
+
     protected override CreateParams CreateParams
     {
         get

@@ -97,6 +97,9 @@ internal sealed class ParkingService : IDisposable
             return true;
         }
 
+        // prima di scegliere il posto: se nel frattempo sono cambiati gli schermi, vale la misura nuova
+        AdaptToScreens();
+
         if (!WindowTools.IsParkable(hwnd))
         {
             Log.Warn($"Non parcheggiabile {WindowTools.Describe(hwnd)}: {WindowTools.WhyNotParkable(hwnd)}");
@@ -135,9 +138,7 @@ internal sealed class ParkingService : IDisposable
 
         // resta della dimensione che ha: ridimensionata qui, fuori schermo, il programma non la ridisegnerebbe
         // e l'anteprima resterebbe nera. Le dimensioni del posto le prende quando si apre.
-        Rectangle panel = ScreenGeometry.PanelRect;
-        if (!Win32.SetWindowPos(hwnd, IntPtr.Zero, ScreenGeometry.ParkX, panel.Y, 0, 0,
-                MoveNoZOrder | Win32.SWP_NOSIZE | Win32.SWP_NOOWNERZORDER))
+        if (!MoveToParking(hwnd))
         {
             Log.Warn($"Spostamento rifiutato parcheggiando {WindowTools.Describe(hwnd)}: errore {Marshal.GetLastWin32Error()}");
             return false;
@@ -233,7 +234,12 @@ internal sealed class ParkingService : IDisposable
         }
 
         window.WaitForMouse = false;
-        StartMove(window, current.Left, current.Top, ScreenGeometry.ParkX, current.Top, ParkState.Collapsing, ParkState.Collapsed);
+
+        // scorre fuori dal lato da cui e' entrata: di lato, o verso il basso (l'alto)
+        Point spot = ScreenGeometry.ParkSpot(current.Width, current.Height);
+        StartMove(window, current.Left, current.Top,
+            ScreenGeometry.SlidesSideways ? spot.X : current.Left,
+            ScreenGeometry.SlidesSideways ? current.Top : spot.Y, ParkState.Collapsing, ParkState.Collapsed);
 
         // se con questa che se ne va e' rimasta una sola pinnata a meta' altezza, torna a tutta l'altezza
         ReflowPinned();
@@ -249,6 +255,55 @@ internal sealed class ParkingService : IDisposable
                 Collapse(window);
             }
         }
+    }
+
+    /// <summary>
+    /// Gli schermi sono cambiati mentre l'app girava (uno si e' acceso, staccato, spostato): rilegge le misure e
+    /// rimette al suo posto, con quelle nuove, ogni finestra parcheggiata. Senza, una finestra parcheggiata oltre il
+    /// bordo di uno schermo puo' ritrovarsi in mezzo a uno schermo appena comparso. Vero se ha rifatto qualcosa.
+    /// </summary>
+    public bool AdaptToScreens()
+    {
+        if (!ScreenGeometry.EnsureCurrent())
+        {
+            return false;
+        }
+
+        Log.Info($"Cambiati gli schermi: la barra sta sul bordo destro di {ScreenGeometry.HomeBounds}, "
+                 + $"le finestre parcheggiate {SideName(ScreenGeometry.Side)}");
+        foreach (ParkedWindow window in _parked.Values.ToList())
+        {
+            if (window.IsDragging)
+            {
+                continue;    // l'utente la sta trascinando: si sistema quando la lascia
+            }
+
+            if (!Win32.IsWindow(window.Hwnd))
+            {
+                Remove(window);
+                continue;
+            }
+
+            // un movimento in corso si conclude qui, senza farlo scorrere fino al posto che non vale piu'
+            window.IsMoving = false;
+            window.MoveEndState = null;
+
+            if (window.State is ParkState.Expanded or ParkState.Expanding)
+            {
+                Rectangle target = ExpectedRect(window);
+                _ = Win32.SetWindowPos(window.Hwnd, Win32.HWND_TOPMOST, target.Left, target.Top, target.Width,
+                    target.Height, Win32.SWP_NOACTIVATE | Win32.SWP_NOSENDCHANGING | Win32.SWP_NOOWNERZORDER);
+                window.State = ParkState.Expanded;
+            }
+            else
+            {
+                _ = MoveToParking(window.Hwnd);
+                FinishMove(window, ParkState.Collapsed);
+            }
+        }
+
+        RaiseChanged();
+        return true;
     }
 
     /// <summary>Mette la puntina a una finestra parcheggiata, o la toglie se ce l'ha gia'.</summary>
@@ -322,7 +377,7 @@ internal sealed class ParkingService : IDisposable
                 WINDOWPLACEMENT placement = window.OriginalPlacement;
                 placement.Length = PlacementLength;
                 placement.ShowCmd = placement.ShowCmd == Win32.SW_SHOWMAXIMIZED ? Win32.SW_SHOWMAXIMIZED : Win32.SW_SHOWNA;
-                _ = Win32.SetWindowPlacement(hwnd, ref placement);
+                WindowTools.PutBack(hwnd, ref placement);
                 if (Win32.IsIconic(hwnd))
                 {
                     _ = Win32.ShowWindow(hwnd, SwShownoactivate);
@@ -447,7 +502,6 @@ internal sealed class ParkingService : IDisposable
 
         var unfound = new List<SavedWindow>();
         List<IntPtr> windows = WindowTools.TopLevelWindows();
-        Rectangle panel = ScreenGeometry.PanelRect;
         int recovered = 0;
         foreach (SavedWindow item in saved)
         {
@@ -465,9 +519,8 @@ internal sealed class ParkingService : IDisposable
                 continue;    // gia' ripresa al primo tentativo
             }
 
-            _ = Win32.SetWindowPos(hwnd, IntPtr.Zero, ScreenGeometry.ParkX, panel.Y, 0, 0,
-                MoveNoZOrder | Win32.SWP_NOSIZE | Win32.SWP_NOOWNERZORDER);
-            Step(clock, "spostamento della finestra oltre il bordo");
+            _ = MoveToParking(hwnd);
+            Step(clock, "spostamento della finestra nel parcheggio");
             if (!item.WasTopmost)
             {
                 _ = Win32.SetWindowPos(hwnd, Win32.HWND_NOTOPMOST, 0, 0, 0, 0, ZOrderOnly);
@@ -661,13 +714,24 @@ internal sealed class ParkingService : IDisposable
         window.WaitForMouse = waitForMouse;
 
         // le dimensioni le prende subito: ridimensionandola mentre scorre il contenuto saltellerebbe.
-        // Se arriva da fuori schermo prende subito anche l'altezza, per non attraversare lo schermo in diagonale
-        int startX = current.Left;
-        int startY = window.State == ParkState.Collapsed ? target.Top : current.Top;
+        // Se arriva dal parcheggio prende subito anche la posizione sull'altro asse, per non attraversare lo schermo
+        // in diagonale: chi entra di lato si mette subito all'altezza giusta, chi sale (o scende) alla larghezza giusta
+        bool fromParking = window.State == ParkState.Collapsed;
+        bool sideways = ScreenGeometry.SlidesSideways;
+        int startX = !sideways && fromParking ? target.Left : current.Left;
+        int startY = sideways && fromParking ? target.Top : current.Top;
         _ = Win32.SetWindowPos(window.Hwnd, Win32.HWND_TOPMOST, startX, startY, target.Width, target.Height,
             Win32.SWP_NOACTIVATE | Win32.SWP_NOSENDCHANGING | Win32.SWP_NOOWNERZORDER);
         StartMove(window, startX, startY, target.Left, target.Top, ParkState.Expanding, ParkState.Expanded);
     }
+
+    private static string SideName(ParkSide side) => side switch
+    {
+        ParkSide.Right => "oltre il bordo destro",
+        ParkSide.Below => "sotto il bordo inferiore",
+        ParkSide.Above => "sopra il bordo superiore",
+        _ => "oltre il bordo destro dell'ultimo schermo",
+    };
 
     /// <summary>Fa scorrere la finestra da un punto a un altro. <paramref name="after"/>: lo stato a fine corsa.</summary>
     private void StartMove(ParkedWindow window, int fromX, int fromY, int toX, int toY, ParkState during, ParkState? after)
@@ -711,6 +775,16 @@ internal sealed class ParkingService : IDisposable
         else if (after == ParkState.Expanded)
         {
             window.State = ParkState.Expanded;
+
+            // a fine corsa sta esattamente nel suo posto. Se il programma si e' ridimensionato da solo mentre
+            // arrivava (per esempio per un cambio di scala passando da uno schermo all'altro), lo si rimette
+            Rectangle target = ExpectedRect(window);
+            if (Win32.GetWindowRect(window.Hwnd, out RECT rect)
+                && (Math.Abs(rect.Left - target.Left) > 1 || Math.Abs(rect.Top - target.Top) > 1
+                    || rect.Width != target.Width || rect.Height != target.Height))
+            {
+                _ = Win32.SetWindowPos(window.Hwnd, IntPtr.Zero, target.Left, target.Top, target.Width, target.Height, MoveNoZOrder);
+            }
         }
 
         Updated?.Invoke();
@@ -760,8 +834,7 @@ internal sealed class ParkingService : IDisposable
 
                 // ridotta a icona una finestra sta a (-32000, -32000): non e' tornata a schermo
                 if (window.State == ParkState.Collapsed && !window.IsDragging && !Win32.IsIconic(window.Hwnd)
-                    && Win32.GetWindowRect(window.Hwnd, out RECT rect)
-                    && rect.Left < ScreenGeometry.MonitorBounds.Right)
+                    && Win32.GetWindowRect(window.Hwnd, out RECT rect) && ScreenGeometry.IsOnScreen(rect))
                 {
                     KeepParked(window);
                 }
@@ -803,8 +876,22 @@ internal sealed class ParkingService : IDisposable
             return;
         }
 
-        Rectangle panel = ScreenGeometry.PanelRect;
-        _ = Win32.SetWindowPos(window.Hwnd, IntPtr.Zero, ScreenGeometry.ParkX, panel.Y, 0, 0,
+        _ = MoveToParking(window.Hwnd);
+    }
+
+    /// <summary>
+    /// Porta la finestra nel parcheggio senza cambiarle la misura (resta della dimensione che ha: ridimensionata
+    /// fuori schermo, il programma non la ridisegnerebbe e l'anteprima resterebbe nera). Falso se non ci riesce.
+    /// </summary>
+    private static bool MoveToParking(IntPtr hwnd)
+    {
+        if (!Win32.GetWindowRect(hwnd, out RECT rect))
+        {
+            return false;
+        }
+
+        Point spot = ScreenGeometry.ParkSpot(rect.Width, rect.Height);
+        return Win32.SetWindowPos(hwnd, IntPtr.Zero, spot.X, spot.Y, 0, 0,
             MoveNoZOrder | Win32.SWP_NOSIZE | Win32.SWP_NOOWNERZORDER);
     }
 
