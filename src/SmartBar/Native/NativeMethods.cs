@@ -89,10 +89,16 @@ internal static class Win32
     public const long WS_CAPTION = 0x00C00000L;
     public const long WS_MINIMIZEBOX = 0x00020000L;
     public const long WS_EX_TOPMOST = 0x00000008L;
+    public const long WS_EX_TRANSPARENT = 0x00000020L;   // il mouse passa attraverso
     public const long WS_EX_TOOLWINDOW = 0x00000080L;
+    public const long WS_EX_LAYERED = 0x00080000L;
     public const long WS_EX_NOACTIVATE = 0x08000000L;
     public const int GWL_STYLE = -16;
     public const int GWL_EXSTYLE = -20;
+
+    public const uint WM_GETICON = 0x007F;
+    public const int GCLP_HICON = -14;
+    public const int GCLP_HICONSM = -34;
 
     public const uint GA_ROOT = 2;
     public const uint GW_HWNDNEXT = 2;
@@ -167,6 +173,9 @@ internal static class Win32
 
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
     public static extern nint GetWindowLongPtr(IntPtr hwnd, int index);
+
+    [DllImport("user32.dll", EntryPoint = "GetClassLongPtrW")]
+    public static extern nint GetClassLongPtr(IntPtr hwnd, int index);
 
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool SetWindowPos(IntPtr hwnd, IntPtr insertAfter, int x, int y, int width, int height, uint flags);

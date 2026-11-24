@@ -24,6 +24,13 @@ internal static class ProcessNames
     /// </summary>
     public static string? NameOf(uint processId)
     {
+        string? path = PathOf(processId);
+        return path is null ? null : Path.GetFileNameWithoutExtension(path);
+    }
+
+    /// <summary>Il percorso dell'eseguibile del processo, o null se non si puo' leggere.</summary>
+    public static string? PathOf(uint processId)
+    {
         if (processId == 0)
         {
             return null;
@@ -39,9 +46,7 @@ internal static class ProcessNames
         {
             var text = new StringBuilder(1024);
             uint size = (uint)text.Capacity;
-            return QueryFullProcessImageNameW(process, 0, text, ref size)
-                ? Path.GetFileNameWithoutExtension(text.ToString())
-                : null;
+            return QueryFullProcessImageNameW(process, 0, text, ref size) ? text.ToString() : null;
         }
         finally
         {

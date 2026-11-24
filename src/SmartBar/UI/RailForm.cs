@@ -11,11 +11,14 @@ namespace SmartBar.UI;
 /// <summary>
 /// La barra sul bordo destro: una tessera con l'anteprima viva per ogni finestra parcheggiata.
 /// Le anteprime le disegna Windows sopra il contenuto della finestra, quindi la barra non e' trasparente
-/// e dentro le tessere non si disegna niente (solo attorno).
+/// e dentro le tessere non si disegna niente (solo attorno). L'icona del programma di ogni anteprima sta su
+/// un velo trasparente attaccato subito sopra la barra (vedi IconOverlay).
 /// </summary>
 internal sealed class RailForm : Form
 {
     private const float Pad96 = 6, Gap96 = 6, Margin96 = 3;
+    private const float Badge96 = 24, BadgeFloor96 = 10;   // la pastiglia con l'icona: intera, e quando l'anteprima e' bassa
+    private const int Icon96 = 18;
     private const int FlashMs = 1300;    // quanto dura il lampo del colore dell'app quando la barra compare
 
     private static readonly Color IdleFrame = Color.FromArgb(122, 122, 122);
@@ -23,7 +26,9 @@ internal sealed class RailForm : Form
     private static readonly Color OpenFrame = Color.FromArgb(235, 235, 235);
 
     private readonly ParkingService _service;
+    private readonly IconOverlay _overlay = new();
     private readonly Dictionary<IntPtr, IntPtr> _thumbnails = new();
+    private readonly Dictionary<IntPtr, Bitmap?> _icons = new();    // per finestra: la lettiamo una volta sola
     private readonly List<Tile> _tiles = new();
     private readonly System.Windows.Forms.Timer _flash = new() { Interval = 25 };
     private long _flashStart;
@@ -114,9 +119,27 @@ internal sealed class RailForm : Form
     }
 
     /// <summary>Rimette la barra in cima: le finestre parcheggiate quando si aprono vanno sotto di lei.</summary>
-    public void BringToTop() =>
+    public void BringToTop()
+    {
         _ = Win32.SetWindowPos(Handle, Win32.HWND_TOPMOST, 0, 0, 0, 0,
             Win32.SWP_NOMOVE | Win32.SWP_NOSIZE | Win32.SWP_NOACTIVATE);
+        if (_overlay.Visible)
+        {
+            _overlay.StickAbove(Handle);
+        }
+    }
+
+    /// <summary>L'icona del programma di una finestra parcheggiata (null se non si e' riusciti ad averla).</summary>
+    public Bitmap? IconOf(ParkedWindow window)
+    {
+        if (!_icons.TryGetValue(window.Hwnd, out Bitmap? icon))
+        {
+            icon = AppIcons.Of(window.Hwnd, Px(Icon96));
+            _icons[window.Hwnd] = icon;
+        }
+
+        return icon;
+    }
 
     /// <summary>
     /// Ogni volta che la barra compare fa un lampo del colore dell'app e torna in cima alle finestre: e' stretta e
@@ -198,6 +221,10 @@ internal sealed class RailForm : Form
         {
             _ = Win32.DwmUnregisterThumbnail(_thumbnails[gone]);
             _ = _thumbnails.Remove(gone);
+            if (_icons.Remove(gone, out Bitmap? icon))
+            {
+                icon?.Dispose();
+            }
         }
 
         foreach (ParkedWindow window in _service.Parked)
@@ -227,6 +254,7 @@ internal sealed class RailForm : Form
         int count = _service.Parked.Count;
         if (count == 0)
         {
+            _overlay.Hide();
             Hide();
             return;
         }
@@ -270,6 +298,33 @@ internal sealed class RailForm : Form
         {
             Show();
         }
+
+        PlaceBadges();
+    }
+
+    /// <summary>
+    /// L'icona del programma in basso a sinistra di ogni anteprima, come una linguetta: quando le anteprime sono scure,
+    /// o i programmi si assomigliano, e' l'unico modo di capire che finestra e'. Con anteprime basse la pastiglia si
+    /// rimpicciolisce, per non coprirle.
+    /// </summary>
+    private void PlaceBadges()
+    {
+        var badges = new List<IconOverlay.Badge>();
+        foreach (Tile tile in _tiles)
+        {
+            if (IconOf(tile.Window) is not Bitmap icon)
+            {
+                continue;
+            }
+
+            int full = Px(Badge96);
+            int size = Math.Min(full, Math.Min(tile.Thumb.Width / 2,
+                Math.Max(Px(BadgeFloor96), tile.Thumb.Height * full / Px(77))));
+            var corner = new Rectangle(tile.Thumb.Left + Px(3), tile.Thumb.Bottom - Px(3) - size, size, size);
+            badges.Add(new IconOverlay.Badge(RectangleToScreen(corner), icon));
+        }
+
+        _overlay.Follow(Handle, Bounds, badges);
     }
 
     private void UpdateThumbnail(Tile tile)
@@ -356,6 +411,13 @@ internal sealed class RailForm : Form
             }
 
             _thumbnails.Clear();
+            foreach (Bitmap? icon in _icons.Values)
+            {
+                icon?.Dispose();
+            }
+
+            _icons.Clear();
+            _overlay.Dispose();
         }
 
         base.Dispose(disposing);

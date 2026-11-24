@@ -12,7 +12,7 @@ namespace SmartBar.UI;
 /// </summary>
 internal sealed class CardForm : Form
 {
-    private const float Width96 = 220, Pad96 = 10, TitleHeight96 = 22, Gap96 = 6, Distance96 = 6;
+    private const float Width96 = 220, Pad96 = 10, TitleHeight96 = 22, Gap96 = 6, Distance96 = 6, Icon96 = 16;
 
     private readonly RailForm _rail;
     private ParkedWindow? _window;
@@ -143,7 +143,18 @@ internal sealed class CardForm : Form
             return;
         }
 
-        var title = new Rectangle(Px(Pad96), Height - Px(Pad96) - Px(TitleHeight96), Width - 2 * Px(Pad96), Px(TitleHeight96));
+        // in basso: l'icona del programma e il titolo
+        int line = Px(TitleHeight96);
+        var title = new Rectangle(Px(Pad96), Height - Px(Pad96) - line, Width - 2 * Px(Pad96), line);
+        e.Graphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+        if (_rail.IconOf(_window) is Bitmap icon)
+        {
+            int size = Px(Icon96);
+            e.Graphics.DrawImage(icon, new Rectangle(title.Left, title.Top + (title.Height - size) / 2, size, size));
+            title.X += size + Px(6);
+            title.Width -= size + Px(6);
+        }
+
         TextRenderer.DrawText(e.Graphics, _window.Title, Font, title, Color.FromArgb(225, 225, 225),
             TextFormatFlags.EndEllipsis | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine
             | TextFormatFlags.NoPrefix | TextFormatFlags.PreserveGraphicsClipping);

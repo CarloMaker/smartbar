@@ -214,11 +214,11 @@ def guard(x, y, *allowed):
     if under in allowed:
         return True
 
-    # sopra puo' esserci il suggerimento del pulsante: i suggerimenti si lasciano attraversare dai click, quindi si
-    # guarda quale finestra viene dopo nell'ordine delle finestre e copre quel punto
+    # sopra puo' esserci il suggerimento del pulsante, o il velo con le icone sopra la barra: si lasciano attraversare
+    # dai click, quindi si guarda quale finestra viene dopo nell'ordine delle finestre e copre quel punto
     classes = {hwnd: cls for hwnd, _pid, _title, cls in pp.top_windows()}
     below = under
-    while below and classes.get(below) == TOOLTIP_CLASS:
+    while below and (classes.get(below) == TOOLTIP_CLASS or u.GetProp(below, 'SmartBar.Overlay')):
         below = u.GetWindow(below, 2)        # GW_HWNDNEXT: la finestra subito sotto
         while below and not covers(below, x, y):
             below = u.GetWindow(below, 2)
@@ -300,9 +300,25 @@ def rail_visible():
     return bool(rail) and bool(u.IsWindowVisible(rail))
 
 
+def rail_overlay():
+    """Il velo trasparente con le icone dei programmi, sopra la barra dell'istanza di prova (0 se non c'e')."""
+    for hwnd, pid, _title, _cls in pp.top_windows():
+        if pid == APP_PID and u.GetProp(hwnd, 'SmartBar.Overlay'):
+            return hwnd
+    return 0
+
+
 def rail_center():
     x, y, r, b = pp.rect(app_windows()[1])
     return (x + r) // 2, (y + b) // 2
+
+
+def cursor_on_test_area():
+    """Il mouse vero dell'utente sta sulla metà destra dello schermo, dove le prove aprono le finestre? Per l'app e'
+    come avere il mouse su una finestra di prova, e le regole del mouse non si possono provare."""
+    point = pp.POINT()
+    u.GetCursorPos(ctypes.byref(point))
+    return point.x >= SCREEN_W // 2 - 10
 
 
 def shot(name, x, y, w, h):
@@ -423,6 +439,16 @@ def main():
         check('il pulsante è sparito dalla finestra parcheggiata', notepad not in buttons)
         shot('smoke_2_barra.png', rail_rect[0] - 20, rail_rect[1] - 20, rail_rect[2] - rail_rect[0] + 40,
              rail_rect[3] - rail_rect[1] + 40)
+        overlay = rail_overlay()
+        check('sopra la barra c\'è il velo trasparente con le icone dei programmi, grande quanto la barra',
+              bool(overlay) and bool(u.IsWindowVisible(overlay)) and pp.rect(overlay) == rail_rect,
+              f'velo={pp.rect(overlay) if overlay else None} barra={rail_rect}')
+        check('il velo sta subito sopra la barra (chi copre la barra copre anche lui)',
+              bool(overlay) and u.GetWindow(rail, 3) == overlay,
+              f'sopra la barra: {u.GetWindow(rail, 3) if rail else None} velo: {overlay}')
+        time.sleep(1.5)        # il lampo della barra finisce: si vede com'e' da ferma
+        shot('smoke_2b_barra_icone.png', rail_rect[0] - 20, rail_rect[1] - 20, rail_rect[2] - rail_rect[0] + 40,
+             rail_rect[3] - rail_rect[1] + 40)
 
         # apertura e richiusura comandate
         cmd('freeze', 'on')
@@ -457,6 +483,7 @@ def main():
               cmd('release', notepad) == 'ok' and pp.rect(notepad) == original, f'era={original} ora={pp.rect(notepad)}')
         check('il pulsante di parcheggio è tornato', wait_for(lambda: app_windows()[0].get(notepad), 6) is not None)
         check('la barra si nasconde senza finestre parcheggiate', not rail_visible())
+        check('e con lei si nasconde il velo delle icone', not overlay or not u.IsWindowVisible(overlay))
 
         cmd('exit')
         app.wait(timeout=10)

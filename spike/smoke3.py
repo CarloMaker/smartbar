@@ -149,9 +149,14 @@ def main():
               s.wait_state(second, 'Expanded') and not is_pinned(second) and same(pp.rect(second), slot(1)), state(second))
 
         s.cmd('freeze', 'off')        # il mouse non e' sulla finestra: per chi non ha la puntina e' come esserne uscito
-        s.check('uscendo il mouse la finestra senza puntina si richiude; quella pinnata, rimasta sola, torna a tutta l\'altezza',
-              s.wait_state(second, 'Collapsed', 6) and is_pinned(third) and settled(third, 'Expanded', _panel),
-              f'seconda {state(second)} | terza {state(third)} atteso={_panel}')
+        if s.cursor_on_test_area():
+            # l'utente tiene il mouse sulla metà destra dello schermo: per l'app e' come averlo sulla finestra di prova
+            s.skipped('uscendo il mouse la finestra senza puntina si richiude', 'il mouse dell\'utente sta sull\'area delle finestre di prova')
+            s.cmd('collapse-all')      # stesso stato finale che darebbe l'uscita del mouse
+        else:
+            s.check('uscendo il mouse la finestra senza puntina si richiude; quella pinnata, rimasta sola, torna a tutta l\'altezza',
+                    s.wait_state(second, 'Collapsed', 6) and is_pinned(third) and settled(third, 'Expanded', _panel),
+                    f'seconda {state(second)} | terza {state(third)} atteso={_panel}')
         s.cmd('freeze', 'on')
 
         s.cmd('open', first)
