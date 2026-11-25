@@ -55,6 +55,22 @@ internal sealed class AppContext : ApplicationContext
         var menu = new ContextMenuStrip();
         menu.Items.Add("Ripristina tutte le finestre", null, (_, _) => RestoreAll());
         menu.Items.Add(new ToolStripSeparator());
+
+        // dove sta la barra: la scelta resta salvata; il segno di spunta mostra quella in corso
+        var barOnLeft = new ToolStripMenuItem("Sul lato sinistro", null, (_, _) => MoveBar(BarSide.Left));
+        var barOnRight = new ToolStripMenuItem("Sul lato destro", null, (_, _) => MoveBar(BarSide.Right));
+        var barMenu = new ToolStripMenuItem("Barra");
+        barMenu.DropDownItems.Add(barOnLeft);
+        barMenu.DropDownItems.Add(barOnRight);
+        menu.Items.Add(barMenu);
+        menu.Opening += (_, _) =>
+        {
+            bool left = Settings.Side == BarSide.Left;
+            barOnLeft.Checked = left;
+            barOnRight.Checked = !left;
+        };
+
+        menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Esci", null, (_, _) => ExitApp());
         _tray = new NotifyIcon
         {
@@ -201,6 +217,21 @@ internal sealed class AppContext : ApplicationContext
         }
     }
 
+    /// <summary>Dal menu dell'icona: la barra sull'altro lato dello schermo.</summary>
+    private void MoveBar(BarSide side)
+    {
+        try
+        {
+            _rail.Hover = null;
+            _card.ShowFor(null);
+            _service.MoveBar(side);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Errore spostando la barra", ex);
+        }
+    }
+
     private void OnDisplaysChanged() => AdaptToScreens("perché Windows ha avvertito");
 
     /// <summary>Gli schermi sono cambiati mentre l'app gira: la barra e le finestre parcheggiate si adattano.</summary>
@@ -272,6 +303,15 @@ internal sealed class AppContext : ApplicationContext
             case "freeze":
                 _frozen = parts.Length > 1 && parts[1] == "on";
                 return "ok";
+            case "side":
+                // per le prove automatiche (dal menu si fa con la voce "Barra"): "side left" oppure "side right"
+                if (parts.Length > 1 && Enum.TryParse(parts[1], ignoreCase: true, out BarSide wanted) && Enum.IsDefined(wanted))
+                {
+                    MoveBar(wanted);
+                    return $"ok {Settings.Side}";
+                }
+
+                return "err lato sconosciuto";
             case "exit":
                 // la risposta va data prima di chiudere: l'uscita si fa al passaggio successivo del ciclo
                 SynchronizationContext.Current?.Post(_ => ExitApp(), null);

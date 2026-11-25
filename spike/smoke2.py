@@ -64,12 +64,14 @@ def main():
         s.ONLY = [probe.pid]
         app = s.start_app()
         s.check('SmartBar (istanza di prova) si avvia e risponde ai comandi', s.wait_ready())
+        s.use_side('left')        # questa prova assume la barra a sinistra
         s.check('parcheggiata', park(charmap))
 
         # Riduci a icona su una finestra parcheggiata aperta
         s.cmd('freeze', 'on')
         s.cmd('open', charmap)
-        s.check('aperta: occupa metà schermo', s.wait_state(charmap, 'Expanded'), f'stato={s.state_of(charmap)} rettangolo={pp.rect(charmap)}')
+        s.check('aperta: occupa lo spazio accanto alla barra', s.wait_state(charmap, 'Expanded') and s.is_open(charmap),
+              f'stato={s.state_of(charmap)} rettangolo={pp.rect(charmap)}')
         u.ShowWindow(charmap, SW_MINIMIZE)
         time.sleep(1.3)
         s.check('Riduci a icona la richiude nella barra senza ridurla davvero', s.wait_state(charmap, 'Collapsed')

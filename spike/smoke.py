@@ -221,17 +221,44 @@ def on_any_screen(rect):
     return any(rect[0] < r and rect[2] > l and rect[1] < b and rect[3] > t for l, t, r, b in monitors())
 
 
-def panel_rect():
-    """Lo spazio che occupa una finestra parcheggiata aperta: da metà schermo fino alla barra, sullo schermo principale."""
+def work_area():
+    """(sinistra, alto, destra, basso) dello schermo principale senza la barra delle applicazioni."""
     work = wt.RECT()
     u.SystemParametersInfoW(0x30, 0, ctypes.byref(work), 0)        # SPI_GETWORKAREA
-    return (SCREEN_W // 2, work.top, SCREEN_W - 84, work.bottom)
+    return (work.left, work.top, work.right, work.bottom)
+
+
+RAIL_W, RAIL_TOP, RAIL_BOTTOM = 84, 56, 56     # quanto e' larga la barra e quanto sta staccata dall'alto e dal basso
+BAR_LEFT = True                                 # da che parte sta la barra: l'app la tiene a sinistra se non si è scelto altro
+
+
+def panel_rect():
+    """Lo spazio che occupa una finestra parcheggiata aperta: da metà schermo fino alla barra, sullo schermo principale."""
+    work = work_area()
+    half = SCREEN_W // 2 - RAIL_W
+    return (work[0] + RAIL_W, work[1], work[0] + RAIL_W + half, work[3]) if BAR_LEFT \
+        else (work[2] - RAIL_W - half, work[1], work[2] - RAIL_W, work[3])
+
+
+def rail_rect():
+    """Il rettangolo della barra dell'istanza di prova, None se non c'e'."""
+    rail = app_windows()[1]
+    return pp.rect(rail) if rail else None
+
+
+def use_side(side):
+    """Mette la barra su un lato ('left' o 'right'), come si fa dal menu dell'icona. Idempotente."""
+    global BAR_LEFT
+    BAR_LEFT = side == 'left'
+    return cmd('side', side)
 
 
 def is_open(hwnd):
-    """La finestra occupa davvero metà schermo (una ridotta a icona sta a -32000 e non conta)."""
+    """La finestra occupa davvero lo spazio accanto alla barra (al massimo 8 pixel di differenza per lato: una ridotta
+    a icona sta a -32000 e non conta)."""
     x, y, r, b = pp.rect(hwnd)
-    return x < SCREEN_W // 2 + 8 and r > SCREEN_W - 150 and b - y > 500
+    left, top, right, bottom = panel_rect()
+    return abs(x - left) <= 8 and abs(y - top) <= 8 and abs(r - right) <= 8 and abs(b - bottom) <= 8
 
 
 def covers(hwnd, x, y):
@@ -353,11 +380,11 @@ def rail_center():
 
 
 def cursor_on_test_area():
-    """Il mouse vero dell'utente sta sulla metà destra dello schermo, dove le prove aprono le finestre? Per l'app e'
-    come avere il mouse su una finestra di prova, e le regole del mouse non si possono provare."""
+    """Il mouse vero dell'utente sta sulla metà dello schermo dove le prove aprono le finestre (quella della barra)?
+    Per l'app e' come avere il mouse su una finestra di prova, e le regole del mouse non si possono provare."""
     point = pp.POINT()
     u.GetCursorPos(ctypes.byref(point))
-    return point.x >= SCREEN_W // 2 - 10
+    return point.x <= SCREEN_W // 2 + 10 if BAR_LEFT else point.x >= SCREEN_W // 2 - 10
 
 
 def shot(name, x, y, w, h):
@@ -432,6 +459,7 @@ def main():
         ONLY = [pid_of(notepad)]
         app = start_app()
         check('SmartBar (istanza di prova) si avvia e risponde ai comandi', wait_ready())
+        use_side('left')        # questa prova assume la barra a sinistra (la scelta resta salvata fra una prova e l'altra)
 
         button = wait_for(lambda: app_windows()[0].get(notepad), 10)
         check('il nostro pulsante compare accanto a Riduci a icona', bool(button), f'pulsante={pp.rect(button) if button else None}')
@@ -484,6 +512,11 @@ def main():
         rail_rect = pp.rect(rail) if rail else None
         check('la barra è visibile e stretta', bool(rail) and bool(u.IsWindowVisible(rail)) and rail_rect[2] - rail_rect[0] <= 90,
               f'barra={rail_rect}')
+        work = work_area()
+        on_edge = bool(rail) and (rail_rect[0] == work[0] if BAR_LEFT else rail_rect[2] == work[2])
+        check('la barra sta sul bordo scelto', on_edge, f'barra={rail_rect} spazio di lavoro={work}')
+        check('la barra non copre i pulsanti di chiusura delle finestre ingrandite: sta almeno 56 pixel sotto l\'alto',
+              bool(rail) and rail_rect[1] >= work[1] + RAIL_TOP, f'barra={rail_rect} spazio di lavoro={work}')
         check('il pulsante è sparito dalla finestra parcheggiata', notepad not in buttons)
         shot('smoke_2_barra.png', rail_rect[0] - 20, rail_rect[1] - 20, rail_rect[2] - rail_rect[0] + 40,
              rail_rect[3] - rail_rect[1] + 40)
@@ -501,8 +534,8 @@ def main():
         # apertura e richiusura comandate
         cmd('freeze', 'on')
         cmd('open', notepad)
-        check('aperta: occupa metà schermo', wait_state(notepad, 'Expanded') and pp.rect(notepad)[0] < SCREEN_W // 2 + 8
-              and pp.rect(notepad)[2] > SCREEN_W - 100 and pp.rect(notepad)[1] <= 0, f'rettangolo={pp.rect(notepad)}')
+        check('aperta: occupa lo spazio accanto alla barra', wait_state(notepad, 'Expanded') and is_open(notepad),
+              f'rettangolo={pp.rect(notepad)} atteso={panel_rect()}')
         shot('smoke_4_aperta.png', 1200, 0, 1360, 430)
         cmd('collapse-all')
         check('richiusa: torna oltre il bordo', wait_state(notepad, 'Collapsed') and off_screen(notepad), f'rettangolo={pp.rect(notepad)}')
@@ -516,12 +549,14 @@ def main():
             _buttons, _rail, card = app_windows()
             card_rect = pp.rect(card) if card and u.IsWindowVisible(card) else None
             check('passando sulla tessera compare la scheda con l\'anteprima grande', bool(card_rect), f'scheda={card_rect}')
+            inside = bool(card_rect) and (card_rect[0] >= rail_rect[2] - 1 if BAR_LEFT else card_rect[2] <= rail_rect[0] + 1)
+            check('la scheda esce dalla barra verso l\'interno dello schermo', inside, f'scheda={card_rect} barra={rail_rect}')
             if card_rect:
                 shot('smoke_3_scheda.png', card_rect[0] - 20, min(card_rect[1], rail_rect[1]) - 20,
                      rail_rect[2] - card_rect[0] + 40, max(card_rect[3], rail_rect[3]) - min(card_rect[1], rail_rect[1]) + 40)
             time.sleep(0.8)
             opened = pp.rect(notepad)
-            check('fermandosi sulla tessera la finestra si apre', opened[0] < SCREEN_W // 2 + 8, f'rettangolo={opened}')
+            check('fermandosi sulla tessera la finestra si apre', is_open(notepad), f'rettangolo={opened}')
             u.SetCursorPos(300, 700)
             time.sleep(1.0)
             check('quando il mouse esce la finestra rientra nella barra', off_screen(notepad), f'rettangolo={pp.rect(notepad)}')

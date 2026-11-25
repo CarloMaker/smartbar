@@ -8,7 +8,7 @@ namespace SmartBar.UI;
 
 /// <summary>
 /// La scheda che compare accanto alla tessera sotto il mouse, con l'anteprima grande e il titolo.
-/// La barra resta stretta e ferma: e' la scheda a uscire verso sinistra, cosi' le tessere non si spostano mai.
+/// La barra resta stretta e ferma: e' la scheda a uscire verso l'interno dello schermo, cosi' le tessere non si spostano mai.
 /// </summary>
 internal sealed class CardForm : Form
 {
@@ -89,11 +89,13 @@ internal sealed class CardForm : Form
         int thumbnailHeight = (int)Math.Round(thumbnailWidth * panel.Height / (float)panel.Width);
         int height = pad + thumbnailHeight + Px(Gap96) + Px(TitleHeight96) + pad;
 
-        // attaccata alla tessera, ma senza uscire dallo schermo
-        int right = _rail.Left - Px(Distance96);
+        // attaccata alla tessera dal lato opposto al bordo, ma senza uscire dallo schermo
+        int left = ScreenGeometry.BarSide == BarSide.Left
+            ? _rail.Right + Px(Distance96)
+            : _rail.Left - Px(Distance96) - width;
         int lowestTop = Math.Max(ScreenGeometry.WorkArea.Top, ScreenGeometry.WorkArea.Bottom - height);
         int top = Math.Clamp(tile.Value.Top - pad, ScreenGeometry.WorkArea.Top, lowestTop);
-        Bounds = new Rectangle(right - width, top, width, height);
+        Bounds = new Rectangle(left, top, width, height);
 
         if (_thumbnail != IntPtr.Zero)
         {

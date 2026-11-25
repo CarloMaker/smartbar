@@ -100,6 +100,7 @@ def main():
         s.ONLY = [s.pid_of(notepad), probe.pid]
         app = s.start_app()
         s.check('SmartBar (istanza di prova) si avvia e risponde ai comandi', s.wait_ready())
+        s.use_side('left')        # non dipende dal lato, ma la scelta resta salvata fra una prova e l'altra
 
         # --- Blocco note: le schede arrivano fino ai pulsanti di sistema ---
         button = s.wait_for(lambda: s.app_windows()[0].get(notepad), 10)

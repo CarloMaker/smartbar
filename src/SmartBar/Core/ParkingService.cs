@@ -8,7 +8,7 @@ namespace SmartBar.Core;
 
 internal enum ParkState
 {
-    /// <summary>Oltre il bordo destro: si vede solo l'anteprima nella barra.</summary>
+    /// <summary>Nel parcheggio, fuori da tutti gli schermi: si vede solo l'anteprima nella barra.</summary>
     Collapsed,
 
     /// <summary>Sta scorrendo dentro.</summary>
@@ -56,7 +56,7 @@ internal sealed class ParkedWindow
 
 /// <summary>
 /// Decide dove stanno le finestre parcheggiate e quando si aprono. Non incorpora mai le finestre:
-/// restano finestre normali degli altri programmi, solo spostate oltre il bordo destro.
+/// restano finestre normali degli altri programmi, solo spostate nel parcheggio, fuori dallo schermo.
 /// </summary>
 internal sealed class ParkingService : IDisposable
 {
@@ -169,7 +169,7 @@ internal sealed class ParkingService : IDisposable
     }
 
     /// <summary>
-    /// Apre la finestra facendola scorrere fuori dal bordo destro. Senza puntina occupa tutto lo spazio
+    /// Apre la finestra facendola scorrere fuori dal bordo dove sta la barra. Senza puntina occupa tutto lo spazio
     /// accanto alla barra; se c'e' gia' una finestra pinnata si apre nell'altro posto, per non coprirla.
     /// </summary>
     public void Expand(ParkedWindow window, bool waitForMouse = false)
@@ -269,8 +269,37 @@ internal sealed class ParkingService : IDisposable
             return false;
         }
 
-        Log.Info($"Cambiati gli schermi: la barra sta sul bordo destro di {ScreenGeometry.HomeBounds}, "
+        Log.Info($"Cambiati gli schermi: la barra sta sul bordo {BarName()} di {ScreenGeometry.HomeBounds}, "
                  + $"le finestre parcheggiate {SideName(ScreenGeometry.Side)}");
+        PutParkedInPlace();
+        RaiseChanged();
+        return true;
+    }
+
+    /// <summary>
+    /// Sposta la barra sull'altro lato dello schermo: la scelta resta salvata. La barra, lo spazio delle finestre
+    /// aperte e il parcheggio si ribaltano, e le finestre parcheggiate si spostano senza farle scorrevolere.
+    /// </summary>
+    public void MoveBar(BarSide side)
+    {
+        if (Settings.Side == side)
+        {
+            return;
+        }
+
+        Settings.Set(side);
+        ScreenGeometry.Refresh();
+        Log.Info($"Barra spostata sul bordo {BarName()} di {ScreenGeometry.HomeBounds}: "
+                 + $"le finestre parcheggiate {SideName(ScreenGeometry.Side)}");
+        PutParkedInPlace();
+        RaiseChanged();
+    }
+
+    private static string BarName() => Settings.Side == BarSide.Left ? "sinistro" : "destro";
+
+    /// <summary>Ogni finestra parcheggiata va dove le dicono le misure di adesso, senza animazioni.</summary>
+    private void PutParkedInPlace()
+    {
         foreach (ParkedWindow window in _parked.Values.ToList())
         {
             if (window.IsDragging)
@@ -301,9 +330,6 @@ internal sealed class ParkingService : IDisposable
                 FinishMove(window, ParkState.Collapsed);
             }
         }
-
-        RaiseChanged();
-        return true;
     }
 
     /// <summary>Mette la puntina a una finestra parcheggiata, o la toglie se ce l'ha gia'.</summary>
@@ -728,8 +754,10 @@ internal sealed class ParkingService : IDisposable
     private static string SideName(ParkSide side) => side switch
     {
         ParkSide.Right => "oltre il bordo destro",
+        ParkSide.Left => "oltre il bordo sinistro",
         ParkSide.Below => "sotto il bordo inferiore",
         ParkSide.Above => "sopra il bordo superiore",
+        ParkSide.FarLeft => "oltre il bordo sinistro dell'ultimo schermo",
         _ => "oltre il bordo destro dell'ultimo schermo",
     };
 

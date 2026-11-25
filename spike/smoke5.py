@@ -56,6 +56,7 @@ def main():
         s.ONLY = [s.pid_of(notepad)]
         app = s.start_app()
         s.check('SmartBar (istanza di prova) si avvia e risponde ai comandi', s.wait_ready())
+        s.use_side('left')        # questa prova assume la barra a sinistra
 
         s.check('parcheggiata una finestra del secondo schermo: non si vede su nessuno schermo',
                 s.cmd('park', notepad) == 'ok' and s.off_screen(notepad), f'rettangolo={pp.rect(notepad)}')

@@ -8,28 +8,34 @@ namespace SmartBar.Core;
 /// <summary>Da che parte dello schermo principale sta il parcheggio delle finestre.</summary>
 internal enum ParkSide
 {
-    /// <summary>Oltre il bordo destro: le finestre scorrono dentro dalla destra. Il caso normale, con un solo schermo.</summary>
+    /// <summary>Oltre il bordo destro: le finestre scorrono dentro dalla destra. Quando la barra sta a destra e lì non c'e' un altro schermo.</summary>
     Right,
 
-    /// <summary>Sotto il bordo inferiore: le finestre scorrono su dal basso. Quando a destra c'e' un altro schermo.</summary>
+    /// <summary>Oltre il bordo sinistro: le finestre scorrono dentro dalla sinistra. Quando la barra sta a sinistra e lì non c'e' un altro schermo.</summary>
+    Left,
+
+    /// <summary>Sotto il bordo inferiore: le finestre scorrono su dal basso. Quando di lato c'e' un altro schermo.</summary>
     Below,
 
     /// <summary>Sopra il bordo superiore: le finestre scorrono giu' dall'alto.</summary>
     Above,
 
     /// <summary>
-    /// Oltre il bordo destro dell'ultimo schermo. Restano invisibili, ma per Windows stanno vicino a quello schermo:
-    /// se ha una scala diversa, i programmi ridimensionano la finestra. Solo quando non c'e' di meglio.
+    /// Oltre il bordo dell'ultimo schermo a destra (o a sinistra). Restano invisibili, ma per Windows stanno vicino a
+    /// quello schermo: se ha una scala diversa, i programmi ridimensionano la finestra. Solo quando non c'e' di meglio.
     /// </summary>
     FarRight,
+
+    FarLeft,
 }
 
 /// <summary>
-/// Misure degli schermi in pixel fisici. La barra e lo spazio delle finestre aperte stanno sul bordo destro dello
-/// schermo principale. Le finestre parcheggiate stanno subito fuori da quello schermo, dal lato libero, cosi' non si
-/// vedono: per Windows restano "dello" schermo principale e i programmi non le ridimensionano (se stessero oltre un
-/// altro schermo con una scala diversa, cambierebbe la scala: il 2026-11-24, con un secondo schermo al 150%, le
-/// finestre tornavano piu' piccole o non riempivano lo spazio).
+/// Misure degli schermi in pixel fisici. La barra e lo spazio delle finestre aperte stanno sul bordo sinistro o destro
+/// dello schermo principale, come scelto dall'utente (<see cref="Settings.Side"/>). Le finestre parcheggiate stanno
+/// subito fuori da quello schermo, dal lato libero, cosi' non si vedono: per Windows restano "dello" schermo
+/// principale e i programmi non le ridimensionano (se stessero oltre un altro schermo con una scala diversa,
+/// cambierebbe la scala: il 2026-11-24, con un secondo schermo al 150%, le finestre tornavano piu' piccole o non
+/// riempivano lo spazio).
 /// Gli schermi possono cambiare mentre l'app gira (uno che si accende, si stacca, si sposta): le misure si rileggono
 /// quando serve (<see cref="EnsureCurrent"/>), non valgono per sempre quelle dell'avvio. Quel giorno l'app era partita
 /// con un solo schermo e parcheggiava 64 pixel oltre il bordo del principale: quando se n'e' acceso un secondo a
@@ -38,7 +44,14 @@ internal enum ParkSide
 internal static class ScreenGeometry
 {
     public const float RailWidth96 = 84;
-    public const float RailTopOffset96 = 48;
+
+    /// <summary>
+    /// Quanto la barra sta staccata dall'alto e dal basso dello spazio di lavoro. Sotto, cosi' non copre mai la barra
+    /// delle applicazioni; sopra, cosi' non copre mai i pulsanti di chiusura delle finestre ingrandite, che stanno
+    /// nell'angolo in alto (verificato il 2026-11-24: sono alti fino a 44 pixel).
+    /// </summary>
+    public const float RailTopOffset96 = 56, RailBottomOffset96 = 56;
+
     private const float ParkMargin96 = 64;
     private const float SlotGap96 = 6;
 
@@ -48,14 +61,18 @@ internal static class ScreenGeometry
     /// <summary>Fattore di scala del sistema: converte i "pixel di progetto" (a 96 dpi) in pixel veri.</summary>
     public static float Scale { get; } = Win32.GetDpiForSystem() / 96f;
 
+    /// <summary>Da che parte sta la barra, come scelto dall'utente.</summary>
+    public static BarSide BarSide => Settings.Side;
+
     /// <summary>Lo schermo principale: qui stanno la barra e lo spazio delle finestre aperte.</summary>
     public static Rectangle HomeBounds { get; private set; }
 
     /// <summary>Lo schermo principale senza la barra delle applicazioni.</summary>
     public static Rectangle WorkArea { get; private set; }
 
-    /// <summary>Lo schermo che finisce piu' a destra: serve solo quando si parcheggia oltre l'ultimo.</summary>
+    /// <summary>Gli schermi che finiscono piu' a destra e piu' a sinistra: servono solo quando si parcheggia oltre l'ultimo.</summary>
     public static Rectangle MonitorBounds { get; private set; }
+    public static Rectangle LeftmostBounds { get; private set; }
 
     /// <summary>Lo spazio che occupa una finestra aperta: da metà schermo fino alla barra.</summary>
     public static Rectangle PanelRect { get; private set; }
@@ -64,13 +81,12 @@ internal static class ScreenGeometry
     public static ParkSide Side { get; private set; } = ParkSide.Right;
 
     /// <summary>Le finestre parcheggiate scorrono dentro e fuori di lato (altrimenti dal basso o dall'alto).</summary>
-    public static bool SlidesSideways => Side is ParkSide.Right or ParkSide.FarRight;
+    public static bool SlidesSideways => Side is ParkSide.Right or ParkSide.Left or ParkSide.FarRight or ParkSide.FarLeft;
 
-    /// <summary>Oltre il bordo destro dell'ultimo schermo di quanto si parcheggia, quando si parcheggia li'.</summary>
-    public static int ParkX => MonitorBounds.Right + Px(ParkMargin96);
-
-    /// <summary>Angolo in alto a sinistra della barra: sotto i pulsanti delle finestre massimizzate.</summary>
-    public static Point RailLocation => new(HomeBounds.Right - Px(RailWidth96), WorkArea.Top + Px(RailTopOffset96));
+    /// <summary>Angolo in alto a sinistra della barra: sul bordo scelto, staccata dall'alto.</summary>
+    public static Point RailLocation => new(
+        BarSide == BarSide.Left ? WorkArea.Left : WorkArea.Right - Px(RailWidth96),
+        WorkArea.Top + Px(RailTopOffset96));
 
     private readonly record struct ScreenInfo(Rectangle Bounds, Rectangle Work, bool Primary);
 
@@ -94,7 +110,7 @@ internal static class ScreenGeometry
         return true;
     }
 
-    /// <summary>Rilegge gli schermi e rifà le misure.</summary>
+    /// <summary>Rilegge gli schermi e rifà le misure (da richiamare anche quando cambia il lato della barra).</summary>
     public static void Refresh()
     {
         _layout = Layout();
@@ -125,25 +141,30 @@ internal static class ScreenGeometry
         HomeBounds = home.Bounds;
         WorkArea = home.Work;
         MonitorBounds = screens.Select(screen => screen.Bounds).OrderByDescending(bounds => bounds.Right).First();
+        LeftmostBounds = screens.Select(screen => screen.Bounds).OrderBy(bounds => bounds.Left).First();
         Side = ChooseSide(home, screens);
 
-        // finestra aperta e barra insieme fanno mezza larghezza dello schermo
-        int width = HomeBounds.Width / 2 - Px(RailWidth96);
-        PanelRect = new Rectangle(HomeBounds.Right - Px(RailWidth96) - width, WorkArea.Top, width, WorkArea.Height);
+        // finestra aperta e barra insieme fanno mezza larghezza dello schermo; la barra sta sul bordo scelto
+        int rail = Px(RailWidth96);
+        int width = HomeBounds.Width / 2 - rail;
+        int left = BarSide == BarSide.Left ? WorkArea.Left + rail : WorkArea.Right - rail - width;
+        PanelRect = new Rectangle(left, WorkArea.Top, width, WorkArea.Height);
     }
 
     /// <summary>
-    /// Da che parte parcheggiare: il primo lato libero dello schermo principale, in quest'ordine: destra (le finestre
-    /// scorrono dentro dalla destra, come sempre), sotto, sopra. Oltre l'ultimo schermo solo se sono tutti occupati.
+    /// Da che parte parcheggiare: il primo lato libero, guardando prima quello dove sta la barra (cosi' le finestre
+    /// scorrono dentro da quel lato), poi sotto, sopra, e da ultimo oltre l'ultimo schermo.
     /// </summary>
     private static ParkSide ChooseSide(ScreenInfo home, List<ScreenInfo> screens)
     {
         var others = screens.Where(screen => screen.Bounds != home.Bounds).ToList();
         int safe = Px(ParkMargin96);
 
-        // a destra e' libero se nessun altro schermo gli sta di fianco (si vedrebbero le finestre parcheggiate)
+        // di lato e' libero se nessun altro schermo gli sta di fianco (si vedrebbero le finestre parcheggiate)
         bool rightBusy = others.Any(screen => screen.Bounds.Right > home.Bounds.Right
                                               && screen.Bounds.Bottom > home.Work.Top && screen.Bounds.Top < home.Work.Bottom);
+        bool leftBusy = others.Any(screen => screen.Bounds.Left < home.Bounds.Left
+                                             && screen.Bounds.Bottom > home.Work.Top && screen.Bounds.Top < home.Work.Bottom);
 
         // sotto (o sopra) e' libero se, sotto il bordo, nessun altro schermo arriva in corrispondenza dello schermo
         // principale, lasciando un margine: una finestra parcheggiata li' resterebbe invisibile e piu' vicina allo
@@ -152,6 +173,11 @@ internal static class ScreenGeometry
                                               && screen.Bounds.Left < home.Bounds.Right - safe && screen.Bounds.Right > home.Bounds.Left);
         bool aboveBusy = others.Any(screen => screen.Bounds.Top < home.Bounds.Top
                                               && screen.Bounds.Left < home.Bounds.Right - safe && screen.Bounds.Right > home.Bounds.Left);
+
+        if (BarSide == BarSide.Left)
+        {
+            return !leftBusy ? ParkSide.Left : !belowBusy ? ParkSide.Below : !aboveBusy ? ParkSide.Above : ParkSide.FarLeft;
+        }
 
         return !rightBusy ? ParkSide.Right : !belowBusy ? ParkSide.Below : !aboveBusy ? ParkSide.Above : ParkSide.FarRight;
     }
@@ -162,23 +188,30 @@ internal static class ScreenGeometry
     /// </summary>
     public static Point ParkSpot(int width, int height)
     {
-        if (Side == ParkSide.Below)
+        switch (Side)
         {
-            // una finestra larga quasi come lo schermo puo' arrivare sotto un altro schermo che scende piu' in basso:
-            // si va sotto anche a quello
-            int floor = _screens.Where(screen => screen.Bounds.Right > HomeBounds.Left && screen.Bounds.Left < HomeBounds.Left + width)
-                                .Select(screen => screen.Bounds.Bottom).DefaultIfEmpty(HomeBounds.Bottom).Max();
-            return new Point(HomeBounds.Left, floor + 1);
-        }
+            case ParkSide.Left:
+                return new Point(HomeBounds.Left - 1 - width, WorkArea.Top);
+            case ParkSide.FarLeft:
+                return new Point(LeftmostBounds.Left - Px(ParkMargin96) - width, WorkArea.Top);
+            case ParkSide.FarRight:
+                return new Point(MonitorBounds.Right + Px(ParkMargin96), WorkArea.Top);
+            case ParkSide.Below:
+            case ParkSide.Above:
+            {
+                // una finestra larga quasi come lo schermo puo' arrivare sotto un altro schermo che scende piu' in basso:
+                // si va sotto (o sopra) anche a quello
+                List<Rectangle> touched = _screens.Where(screen => screen.Bounds.Right > HomeBounds.Left
+                                                                 && screen.Bounds.Left < HomeBounds.Left + width)
+                    .Select(screen => screen.Bounds).ToList();
+                return Side == ParkSide.Below
+                    ? new Point(HomeBounds.Left, touched.Select(bounds => bounds.Bottom).DefaultIfEmpty(HomeBounds.Bottom).Max() + 1)
+                    : new Point(HomeBounds.Left, touched.Select(bounds => bounds.Top).DefaultIfEmpty(HomeBounds.Top).Min() - 1 - height);
+            }
 
-        if (Side == ParkSide.Above)
-        {
-            int ceiling = _screens.Where(screen => screen.Bounds.Right > HomeBounds.Left && screen.Bounds.Left < HomeBounds.Left + width)
-                                  .Select(screen => screen.Bounds.Top).DefaultIfEmpty(HomeBounds.Top).Min();
-            return new Point(HomeBounds.Left, ceiling - 1 - height);
+            default:
+                return new Point(HomeBounds.Right + Px(ParkMargin96), WorkArea.Top);
         }
-
-        return new Point(ParkX, WorkArea.Top);
     }
 
     /// <summary>Il rettangolo si vede su almeno uno schermo (anche un solo pixel in comune)?</summary>
@@ -199,7 +232,7 @@ internal static class ScreenGeometry
 
     /// <summary>
     /// Uno dei due posti delle finestre pinnate: lo spazio accanto alla barra diviso in alto (0) e basso (1),
-    /// così due finestre pinnate non si coprono e la metà sinistra dello schermo resta libera.
+    /// così due finestre pinnate non si coprono e la metà opposta dello schermo resta libera.
     /// </summary>
     public static Rectangle GetSlot(int index)
     {

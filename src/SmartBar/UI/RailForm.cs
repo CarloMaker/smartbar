@@ -9,7 +9,7 @@ using SmartBar.Native;
 namespace SmartBar.UI;
 
 /// <summary>
-/// La barra sul bordo destro: una tessera con l'anteprima viva per ogni finestra parcheggiata.
+/// La barra sul bordo destro o sinistro, come sceglie l'utente: una tessera con l'anteprima viva per ogni finestra parcheggiata.
 /// Le anteprime le disegna Windows sopra il contenuto della finestra, quindi la barra non e' trasparente
 /// e dentro le tessere non si disegna niente (solo attorno). L'icona del programma di ogni anteprima sta su
 /// un velo trasparente attaccato subito sopra la barra (vedi IconOverlay).
@@ -282,8 +282,10 @@ internal sealed class RailForm : Form
         int thumbnailWidth = innerWidth - 2 * margin;
         int thumbnailHeight = (int)Math.Round(thumbnailWidth * aspect);
 
-        // con tante finestre parcheggiate le tessere si abbassano pur di non uscire dallo schermo
-        int available = ScreenGeometry.WorkArea.Height - Px(ScreenGeometry.RailTopOffset96) - 2 * pad - (count - 1) * gap;
+        // con tante finestre parcheggiate le tessere si abbassano pur di restare fra i due margini: sotto non si va
+        // mai sulla barra delle applicazioni, sopra mai sui pulsanti delle finestre ingrandite
+        int available = ScreenGeometry.WorkArea.Height - Px(ScreenGeometry.RailTopOffset96) - Px(ScreenGeometry.RailBottomOffset96)
+                        - 2 * pad - (count - 1) * gap;
         if (count * (thumbnailHeight + 2 * margin) > available)
         {
             thumbnailHeight = Math.Max(Px(24), available / count - 2 * margin);

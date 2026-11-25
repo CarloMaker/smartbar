@@ -106,6 +106,7 @@ def main():
         s.ONLY = [s.pid_of(first), s.pid_of(second), s.pid_of(third)]
         app = s.start_app()
         s.check('SmartBar (istanza di prova) si avvia e risponde ai comandi', s.wait_ready())
+        s.use_side('left')        # questa prova assume la barra a sinistra
         s.cmd('freeze', 'on')
 
         s.check('parcheggiate due finestre', s.cmd('park', first) == 'ok' and s.cmd('park', second) == 'ok'
@@ -113,8 +114,7 @@ def main():
 
         s.cmd('open', first)
         s.check('senza puntine la prima si apre in tutto lo spazio accanto alla barra, a tutta l\'altezza',
-              s.wait_state(first, 'Expanded') and pp.rect(first)[0] <= s.SCREEN_W // 2 + 8
-              and pp.rect(first)[3] - pp.rect(first)[1] > 1000, state(first))
+              s.wait_state(first, 'Expanded') and s.is_open(first), f'{state(first)} atteso={s.panel_rect()}')
         _panel = pp.rect(first)
 
         s.cmd('pin', first)
