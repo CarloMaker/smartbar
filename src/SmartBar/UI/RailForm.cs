@@ -10,6 +10,8 @@ namespace SmartBar.UI;
 
 /// <summary>
 /// La barra sul bordo destro o sinistro, come sceglie l'utente: una tessera con l'anteprima viva per ogni finestra parcheggiata.
+/// Copre tutta l'altezza del bordo e, come la barra delle applicazioni, occupa la sua striscia: Windows non lascia che
+/// le altre finestre ci passino sopra (vedi ScreenGeometry.Reserved).
 /// Le anteprime le disegna Windows sopra il contenuto della finestra, quindi la barra non e' trasparente
 /// e dentro le tessere non si disegna niente (solo attorno). L'icona del programma di ogni anteprima sta su
 /// un velo trasparente attaccato subito sopra la barra (vedi IconOverlay).
@@ -33,6 +35,12 @@ internal sealed class RailForm : Form
     private readonly System.Windows.Forms.Timer _flash = new() { Interval = 25 };
     private long _flashStart;
     private ParkedWindow? _hover;
+
+    /// <summary>Sopra c'e' un programma a schermo intero (un video, un gioco): la barra sta sotto le finestre, come la barra di Windows.</summary>
+    private bool _covered;
+
+    /// <summary>Si stanno rifacendo le misure per un avviso di Windows: gli avvisi che arrivano intanto non lo rifanno.</summary>
+    private bool _settling;
 
     private sealed record Tile(ParkedWindow Window, Rectangle Bounds, Rectangle Thumb);
 
@@ -83,6 +91,10 @@ internal sealed class RailForm : Form
     public event Action? DisplaysChanged;
 
     private const int WmDisplayChange = 0x007E;
+    private const int WmWindowPosChanged = 0x0047;
+
+    /// <summary>Lo manda Esplora risorse quando riparte: la barra delle applicazioni e' stata rifatta.</summary>
+    private static readonly int WmTaskbarCreated = Win32.RegisterWindowMessage("TaskbarCreated");
 
     protected override void WndProc(ref Message m)
     {
@@ -91,15 +103,103 @@ internal sealed class RailForm : Form
         {
             DisplaysChanged?.Invoke();
         }
+        else if (m.Msg == DesktopBar.NoticeMessage)
+        {
+            OnDesktopNotice(m);
+        }
+        else if (m.Msg == WmWindowPosChanged)
+        {
+            ScreenGeometry.BarMoved();
+        }
+        else if (m.Msg == WmTaskbarCreated)
+        {
+            ScreenGeometry.BarForgotten();
+        }
+    }
+
+    /// <summary>
+    /// Gli avvisi che Windows manda a chi occupa un bordo dello schermo: arrivano col messaggio scelto alla
+    /// registrazione, e nel wParam c'e' quale avviso e'.
+    /// </summary>
+    private void OnDesktopNotice(Message m)
+    {
+        switch ((uint)m.WParam)
+        {
+            case Win32.ABN_FULLSCREENAPP:
+                // E' comparso, o e' finito, un programma a schermo intero. A chi occupa un bordo Windows lo dice ma non
+                // lo sposta: la barra va in fondo alle finestre e poi torna in cima, come la barra delle applicazioni.
+                // (Su Windows 11 26200, il PC per cui e' nata l'app, l'avviso e' arrivato solo "finito"; con un vero
+                // programma a schermo intero e' Windows stesso a metterlo sopra le finestre in primo piano.)
+                SetCovered(m.LParam != IntPtr.Zero);
+                break;
+
+            case Win32.ABN_STATECHANGE:
+            case Win32.ABN_POSCHANGED:
+                // La barra delle applicazioni ha cambiato posto, misura o modo (per esempio e' passata alla scomparsa),
+                // o e' cambiata un'altra barra: la striscia di questa potrebbe essere un'altra
+                if (_settling)
+                {
+                    break;
+                }
+
+                _settling = true;
+                try
+                {
+                    if (ScreenGeometry.RecheckStrip() && Visible)
+                    {
+                        LayoutTiles();
+                    }
+                }
+                finally
+                {
+                    _settling = false;
+                }
+
+                break;
+        }
+    }
+
+    /// <summary>Con un programma a schermo intero in corso la barra va in fondo alle finestre; finito, torna in cima.</summary>
+    private void SetCovered(bool covered)
+    {
+        if (covered == _covered)
+        {
+            return;    // Windows lo ripete a ogni registrazione: conta solo quando cambia
+        }
+
+        Log.Info(covered ? "Programma a schermo intero: la barra va sotto le finestre"
+                         : "Finito il programma a schermo intero: la barra torna in cima");
+        _covered = covered;
+        _overlay.Covered = covered;
+        if (covered)
+        {
+            _overlay.Hide();
+            TopMost = false;
+            _ = Win32.SetWindowPos(Handle, Win32.HWND_BOTTOM, 0, 0, 0, 0,
+                Win32.SWP_NOMOVE | Win32.SWP_NOSIZE | Win32.SWP_NOACTIVATE);
+        }
+        else
+        {
+            TopMost = true;
+            if (Visible)
+            {
+                BringToTop();
+                PlaceBadges();
+            }
+        }
     }
 
     protected override CreateParams CreateParams
     {
         get
         {
-            // niente attivazione: toccare la barra non deve togliere il fuoco alla finestra su cui si lavora
+            // niente attivazione: toccare la barra non deve togliere il fuoco alla finestra su cui si lavora.
+            // Finestra di servizio, come nell'esempio di Microsoft per le barre del desktop: i programmi che rimettono in
+            // ordine le finestre le lasciano stare. Il 2026-11-27 sul PC dell'utente, senza, un altro programma la
+            // spostava dentro lo spazio di lavoro ogni volta che la striscia cambiava (molto probabilmente FancyZones di
+            // PowerToys, che al cambio dello spazio di lavoro sposta le finestre e non guarda quelle di servizio)
             CreateParams parameters = base.CreateParams;
-            parameters.ExStyle |= (int)Win32.WS_EX_NOACTIVATE;
+            parameters.ExStyle |= (int)(Win32.WS_EX_NOACTIVATE | Win32.WS_EX_TOOLWINDOW);
             return parameters;
         }
     }
@@ -112,6 +212,7 @@ internal sealed class RailForm : Form
         _ = Win32.SetProp(Handle, "SmartBar.Rail", (IntPtr)1);
         int round = Win32.DWMWCP_ROUND;
         _ = Win32.DwmSetWindowAttribute(Handle, Win32.DWMWA_WINDOW_CORNER_PREFERENCE, ref round, sizeof(int));
+        ScreenGeometry.AttachBar(Handle);   // con "--reserve" (o da sola, nell'istanza dell'utente): da qui occupa la sua striscia
         SyncThumbnails();
     }
 
@@ -135,6 +236,11 @@ internal sealed class RailForm : Form
     /// <summary>Rimette la barra in cima: le finestre parcheggiate quando si aprono vanno sotto di lei.</summary>
     public void BringToTop()
     {
+        if (_covered)
+        {
+            return;    // c'e' un programma a schermo intero: la barra sta apposta sotto
+        }
+
         _ = Win32.SetWindowPos(Handle, Win32.HWND_TOPMOST, 0, 0, 0, 0,
             Win32.SWP_NOMOVE | Win32.SWP_NOSIZE | Win32.SWP_NOACTIVATE);
         if (_overlay.Visible)
@@ -266,6 +372,9 @@ internal sealed class RailForm : Form
     {
         _tiles.Clear();
         int count = _service.Parked.Count;
+
+        // con la prima finestra parcheggiata la barra occupa la sua striscia del bordo, con l'ultima che se ne va la lascia
+        _ = ScreenGeometry.Reserve(count > 0);
         if (count == 0)
         {
             _overlay.Hide();
@@ -274,7 +383,8 @@ internal sealed class RailForm : Form
         }
 
         int pad = Px(Pad96), gap = Px(Gap96), margin = Px(Margin96);
-        int innerWidth = Px(ScreenGeometry.RailWidth96) - 2 * pad;
+        Rectangle bar = ScreenGeometry.BarRect;
+        int innerWidth = bar.Width - 2 * pad;
         Rectangle panel = ScreenGeometry.PanelRect;
         float aspect = panel.Height / (float)panel.Width;
 
@@ -282,10 +392,8 @@ internal sealed class RailForm : Form
         int thumbnailWidth = innerWidth - 2 * margin;
         int thumbnailHeight = (int)Math.Round(thumbnailWidth * aspect);
 
-        // con tante finestre parcheggiate le tessere si abbassano pur di restare fra i due margini: sotto non si va
-        // mai sulla barra delle applicazioni, sopra mai sui pulsanti delle finestre ingrandite
-        int available = ScreenGeometry.WorkArea.Height - Px(ScreenGeometry.RailTopOffset96) - Px(ScreenGeometry.RailBottomOffset96)
-                        - 2 * pad - (count - 1) * gap;
+        // con tante finestre parcheggiate le tessere si abbassano pur di stare dentro la barra, che va fino alla barra delle applicazioni
+        int available = bar.Height - 2 * pad - (count - 1) * gap;
         if (count * (thumbnailHeight + 2 * margin) > available)
         {
             thumbnailHeight = Math.Max(Px(24), available / count - 2 * margin);
@@ -303,7 +411,7 @@ internal sealed class RailForm : Form
             y += tileHeight + gap;
         }
 
-        Bounds = new Rectangle(ScreenGeometry.RailLocation, new Size(Px(ScreenGeometry.RailWidth96), y - gap + pad));
+        Bounds = bar;
         foreach (Tile tile in _tiles)
         {
             UpdateThumbnail(tile);
@@ -419,6 +527,7 @@ internal sealed class RailForm : Form
         {
             _flash.Stop();
             _flash.Dispose();
+            ScreenGeometry.DetachBar();
             _service.Changed -= SyncThumbnails;
             _service.Updated -= OnServiceUpdated;
             foreach (IntPtr thumbnail in _thumbnails.Values)

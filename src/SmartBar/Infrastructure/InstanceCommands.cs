@@ -51,7 +51,11 @@ internal static class InstanceCommands
         return true;
     }
 
-    /// <summary>Legge "--test" e "--only pid,pid". Falso se l'elenco dei pid non si capisce.</summary>
+    /// <summary>
+    /// Legge "--test", "--only pid,pid" e "--reserve". Falso se l'elenco dei pid non si capisce.
+    /// "--reserve" vale per l'istanza di prova: fa occupare alla barra la sua striscia del bordo, cosa che da solo
+    /// fa l'istanza dell'utente (le prove ordinarie non lo chiedono, per non stringere le finestre di chi usa il PC).
+    /// </summary>
     public static bool TryReadOptions(string[] args)
     {
         for (int i = 0; i < args.Length; i++)
@@ -59,6 +63,12 @@ internal static class InstanceCommands
             if (args[i] == "--test")
             {
                 Runtime.UseTestInstance();
+                continue;
+            }
+
+            if (args[i] == "--reserve")
+            {
+                Runtime.ReserveStrip();
                 continue;
             }
 

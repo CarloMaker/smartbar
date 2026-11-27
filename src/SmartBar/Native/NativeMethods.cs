@@ -65,6 +65,18 @@ internal struct GUITHREADINFO
     public RECT CaretRect;
 }
 
+/// <summary>Una domanda a Windows per una barra del desktop (SHAppBarMessage).</summary>
+[StructLayout(LayoutKind.Sequential)]
+internal struct APPBARDATA
+{
+    public int Size;
+    public IntPtr Hwnd;
+    public uint CallbackMessage;
+    public uint Edge;
+    public RECT Rect;
+    public IntPtr lParam;
+}
+
 [ComImport, Guid("56FDF344-FD6D-11d0-958A-006097C9A090")]
 internal class TaskbarListClass
 {
@@ -115,6 +127,7 @@ internal static class Win32
 
     public static readonly IntPtr HWND_TOPMOST = new(-1);
     public static readonly IntPtr HWND_NOTOPMOST = new(-2);
+    public static readonly IntPtr HWND_BOTTOM = new(1);
 
     public const int SW_SHOWMINIMIZED = 2;
     public const int SW_SHOWMAXIMIZED = 3;
@@ -137,6 +150,14 @@ internal static class Win32
     public const uint GUI_INMENUMODE = 0x4;
     public const uint GUI_SYSTEMMENUMODE = 0x8;
     public const uint GUI_POPUPMENUMODE = 0x10;
+
+    // le barre del desktop: un programma puo' occupare una striscia sul bordo dello schermo, e Windows la toglie alle finestre
+    public const uint ABM_NEW = 0x0000, ABM_REMOVE = 0x0001, ABM_QUERYPOS = 0x0002, ABM_SETPOS = 0x0003,
+        ABM_WINDOWPOSCHANGED = 0x0009;
+    public const uint ABE_LEFT = 0, ABE_TOP = 1, ABE_RIGHT = 2, ABE_BOTTOM = 3;
+
+    /// <summary>Gli avvisi che Windows manda a una barra del desktop, nel wParam del suo messaggio.</summary>
+    public const uint ABN_STATECHANGE = 0, ABN_FULLSCREENAPP = 1, ABN_WINDOWARRANGE = 2, ABN_POSCHANGED = 3;
 
     [DllImport("user32.dll")]
     public static extern bool EnumWindows(EnumWindowsProc callback, IntPtr lParam);
@@ -243,6 +264,12 @@ internal static class Win32
 
     [DllImport("user32.dll")]
     public static extern uint GetDpiForSystem();
+
+    [DllImport("shell32.dll")]
+    public static extern UIntPtr SHAppBarMessage(uint message, ref APPBARDATA data);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern int RegisterWindowMessage(string message);
 
     [DllImport("dwmapi.dll")]
     public static extern int DwmRegisterThumbnail(IntPtr destination, IntPtr source, out IntPtr thumbnailId);

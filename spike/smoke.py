@@ -228,16 +228,58 @@ def work_area():
     return (work.left, work.top, work.right, work.bottom)
 
 
-RAIL_W, RAIL_TOP, RAIL_BOTTOM = 84, 56, 56     # quanto e' larga la barra e quanto sta staccata dall'alto e dal basso
-BAR_LEFT = True                                 # da che parte sta la barra: l'app la tiene a sinistra se non si è scelto altro
+RAIL_W = 84                                      # quanto e' larga la barra: copre tutto il bordo, dallo spazio di lavoro in alto fino alla barra di Windows
+PAD, GAP, MARGIN = 6, 6, 3                       # come la barra dispone le tessere: attorno, fra l'una e l'altra, attorno all'anteprima
+BAR_LEFT = True                                  # da che parte sta la barra: l'app la tiene a sinistra se non si è scelto altro
+RESERVES = False                                 # l'istanza di prova occupa la sua striscia del bordo (avviata con --reserve, vedi smoke7.py)
 
 
 def panel_rect():
-    """Lo spazio che occupa una finestra parcheggiata aperta: da metà schermo fino alla barra, sullo schermo principale."""
+    """Lo spazio che occupa una finestra parcheggiata aperta: da metà schermo fino alla barra, sullo schermo principale.
+    Se l'istanza occupa la sua striscia, lo spazio di lavoro comincia gia' dopo la barra."""
     work = work_area()
     half = SCREEN_W // 2 - RAIL_W
-    return (work[0] + RAIL_W, work[1], work[0] + RAIL_W + half, work[3]) if BAR_LEFT \
-        else (work[2] - RAIL_W - half, work[1], work[2] - RAIL_W, work[3])
+    own = 0 if RESERVES else RAIL_W
+    return (work[0] + own, work[1], work[0] + own + half, work[3]) if BAR_LEFT \
+        else (work[2] - own - half, work[1], work[2] - own, work[3])
+
+
+def tile_rects(count):
+    """I rettangoli, sullo schermo, delle tessere della barra dell'istanza di prova, che in quel momento ne ha count.
+    Come le dispone l'app: in alto, con l'anteprima della forma della finestra aperta che riempie la larghezza."""
+    x, y, r, b = pp.rect(app_windows()[1])
+    left, top, right, bottom = panel_rect()
+    aspect = (bottom - top) / (right - left)
+    width = r - x - 2 * PAD - 2 * MARGIN
+    height = round(width * aspect)
+    available = b - y - 2 * PAD - (count - 1) * GAP
+    if count * (height + 2 * MARGIN) > available:
+        height = max(24, available // count - 2 * MARGIN)
+        width = round(height / aspect)
+    tile_h = height + 2 * MARGIN
+    return [(x + PAD, y + PAD + i * (tile_h + GAP), x + PAD + 2 * MARGIN + width, y + PAD + i * (tile_h + GAP) + tile_h)
+            for i in range(count)]
+
+
+def tile_center(index=0, count=1):
+    """Il centro della tessera index-esima della barra dell'istanza di prova."""
+    left, top, right, bottom = tile_rects(count)[index]
+    return (left + right) // 2, (top + bottom) // 2
+
+
+def tile_rect(hwnd):
+    """Il rettangolo, sullo schermo, della tessera di una finestra parcheggiata: lo dice l'app (comando di sola lettura).
+    None se non c'e'."""
+    found = re.search(r'^ok (-?\d+) (-?\d+) (-?\d+) (-?\d+)$', cmd('tile', hwnd))
+    return tuple(int(value) for value in found.groups()) if found else None
+
+
+def frame_rect(hwnd):
+    """Il rettangolo della finestra come si vede, senza il bordo invisibile che hanno ai lati le finestre normali
+    (e che hanno tutte intorno le finestre ingrandite)."""
+    frame = pp.RECT()
+    pp.dwmapi.DwmGetWindowAttribute(hwnd, 9, ctypes.byref(frame), 16)     # DWMWA_EXTENDED_FRAME_BOUNDS
+    return frame.left, frame.top, frame.right, frame.bottom
 
 
 def rail_rect():
@@ -375,8 +417,8 @@ def rail_overlay():
 
 
 def rail_center():
-    x, y, r, b = pp.rect(app_windows()[1])
-    return (x + r) // 2, (y + b) // 2
+    """Il centro della prima tessera della barra dell'istanza di prova (con una sola finestra parcheggiata)."""
+    return tile_center(0, 1)
 
 
 def cursor_on_test_area():
@@ -515,8 +557,8 @@ def main():
         work = work_area()
         on_edge = bool(rail) and (rail_rect[0] == work[0] if BAR_LEFT else rail_rect[2] == work[2])
         check('la barra sta sul bordo scelto', on_edge, f'barra={rail_rect} spazio di lavoro={work}')
-        check('la barra non copre i pulsanti di chiusura delle finestre ingrandite: sta almeno 56 pixel sotto l\'alto',
-              bool(rail) and rail_rect[1] >= work[1] + RAIL_TOP, f'barra={rail_rect} spazio di lavoro={work}')
+        check('e lo copre in tutta l\'altezza: dallo spazio di lavoro in alto fino alla barra di Windows',
+              bool(rail) and rail_rect[1] == work[1] and rail_rect[3] == work[3], f'barra={rail_rect} spazio di lavoro={work}')
         check('il pulsante è sparito dalla finestra parcheggiata', notepad not in buttons)
         shot('smoke_2_barra.png', rail_rect[0] - 20, rail_rect[1] - 20, rail_rect[2] - rail_rect[0] + 40,
              rail_rect[3] - rail_rect[1] + 40)

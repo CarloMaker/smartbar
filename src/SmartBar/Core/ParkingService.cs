@@ -391,6 +391,10 @@ internal sealed class ParkingService : IDisposable
         }
 
         IntPtr hwnd = window.Hwnd;
+
+        // Era l'ultima: la barra sparisce e la sua striscia del bordo torna alle finestre. Lo si chiede a Windows prima
+        // di rimettere a schermo la finestra, cosi' se era ingrandita prende subito la misura giusta
+        _ = _parked.Count == 0 && ScreenGeometry.Reserve(shown: false);
         if (Win32.IsWindow(hwnd))
         {
             if (!window.WasTopmost)

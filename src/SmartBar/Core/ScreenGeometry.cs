@@ -40,17 +40,14 @@ internal enum ParkSide
 /// quando serve (<see cref="EnsureCurrent"/>), non valgono per sempre quelle dell'avvio. Quel giorno l'app era partita
 /// con un solo schermo e parcheggiava 64 pixel oltre il bordo del principale: quando se n'e' acceso un secondo a
 /// destra, le finestre parcheggiate comparivano sopra.
+///
+/// Quando c'e' almeno una finestra parcheggiata la barra occupa la sua striscia del bordo per tutta l'altezza, come la
+/// barra delle applicazioni: Windows la toglie alle altre finestre, che ingrandite si fermano prima (<see cref="Reserved"/>).
+/// Senza finestre parcheggiate la barra non c'e' e la striscia torna alle finestre.
 /// </summary>
 internal static class ScreenGeometry
 {
     public const float RailWidth96 = 84;
-
-    /// <summary>
-    /// Quanto la barra sta staccata dall'alto e dal basso dello spazio di lavoro. Sotto, cosi' non copre mai la barra
-    /// delle applicazioni; sopra, cosi' non copre mai i pulsanti di chiusura delle finestre ingrandite, che stanno
-    /// nell'angolo in alto (verificato il 2026-11-24: sono alti fino a 44 pixel).
-    /// </summary>
-    public const float RailTopOffset96 = 56, RailBottomOffset96 = 56;
 
     private const float ParkMargin96 = 64;
     private const float SlotGap96 = 6;
@@ -67,8 +64,21 @@ internal static class ScreenGeometry
     /// <summary>Lo schermo principale: qui stanno la barra e lo spazio delle finestre aperte.</summary>
     public static Rectangle HomeBounds { get; private set; }
 
-    /// <summary>Lo schermo principale senza la barra delle applicazioni.</summary>
+    /// <summary>
+    /// Lo spazio di lavoro dello schermo principale senza la barra delle applicazioni, tenendo per intero anche la
+    /// striscia della barra: e' lo spazio che le finestre avrebbero se la barra non occupasse il suo bordo.
+    /// </summary>
     public static Rectangle WorkArea { get; private set; }
+
+    /// <summary>
+    /// La striscia che la barra occupa sul bordo, per tutta l'altezza dello spazio di lavoro: finche' c'e', Windows
+    /// non lascia che le altre finestre ci passino sopra. Vuota se la barra non e' a schermo (nessuna finestra
+    /// parcheggiata), o se Windows non l'ha registrata.
+    /// </summary>
+    public static Rectangle Reserved { get; private set; }
+
+    /// <summary>Dove sta la barra a schermo: la sua striscia; se non ne occupa una, il bordo dello spazio di lavoro.</summary>
+    public static Rectangle BarRect { get; private set; }
 
     /// <summary>Gli schermi che finiscono piu' a destra e piu' a sinistra: servono solo quando si parcheggia oltre l'ultimo.</summary>
     public static Rectangle MonitorBounds { get; private set; }
@@ -83,15 +93,18 @@ internal static class ScreenGeometry
     /// <summary>Le finestre parcheggiate scorrono dentro e fuori di lato (altrimenti dal basso o dall'alto).</summary>
     public static bool SlidesSideways => Side is ParkSide.Right or ParkSide.Left or ParkSide.FarRight or ParkSide.FarLeft;
 
-    /// <summary>Angolo in alto a sinistra della barra: sul bordo scelto, staccata dall'alto.</summary>
-    public static Point RailLocation => new(
-        BarSide == BarSide.Left ? WorkArea.Left : WorkArea.Right - Px(RailWidth96),
-        WorkArea.Top + Px(RailTopOffset96));
+    private static IntPtr _homeMonitor;
 
-    private readonly record struct ScreenInfo(Rectangle Bounds, Rectangle Work, bool Primary);
+    /// <summary>La finestra della barra, che chiede a Windows la sua striscia del bordo (null nell'istanza di prova senza "--reserve").</summary>
+    private static DesktopBar? _bar;
+
+    /// <summary>La barra e' a schermo e occupa la sua striscia.</summary>
+    private static bool _barShown;
+
+    private record struct ScreenInfo(IntPtr Monitor, Rectangle Bounds, Rectangle Work, bool Primary);
 
     private static List<ScreenInfo> _screens =
-        new() { new ScreenInfo(new Rectangle(0, 0, Win32.GetSystemMetrics(0), Win32.GetSystemMetrics(1)), Rectangle.Empty, true) };
+        new() { new ScreenInfo(IntPtr.Zero, new Rectangle(0, 0, Win32.GetSystemMetrics(0), Win32.GetSystemMetrics(1)), Rectangle.Empty, true) };
 
     /// <summary>Come sono messi gli schermi adesso: se cambia, le misure non valgono piu'.</summary>
     private static (int X, int Y, int Width, int Height, int Count) _layout;
@@ -110,7 +123,81 @@ internal static class ScreenGeometry
         return true;
     }
 
-    /// <summary>Rilegge gli schermi e rifà le misure (da richiamare anche quando cambia il lato della barra).</summary>
+    /// <summary>
+    /// La finestra della barra: da qui in poi, quando la barra e' a schermo, occupa la sua striscia del bordo. L'istanza
+    /// di prova senza "--reserve" non la occupa (vedi Runtime.ReservesStrip).
+    /// </summary>
+    public static void AttachBar(IntPtr window)
+    {
+        if (Runtime.ReservesStrip)
+        {
+            _bar = new DesktopBar(window);
+        }
+    }
+
+    /// <summary>La barra sta per chiudere: la sua striscia torna alle finestre subito (Windows la toglirebbe comunque alla chiusura).</summary>
+    public static void DetachBar()
+    {
+        _bar?.Remove();
+        _bar = null;
+    }
+
+    /// <summary>
+    /// La barra e' comparsa a schermo e occupa la sua striscia, oppure e' sparita e la striscia torna alle finestre.
+    /// Rifà le misure; falso se non c'era niente da cambiare.
+    /// </summary>
+    public static bool Reserve(bool shown)
+    {
+        if (shown == _barShown)
+        {
+            return false;
+        }
+
+        _barShown = shown;
+        Refresh();
+        return true;
+    }
+
+    /// <summary>
+    /// Windows avvisa che la barra delle applicazioni o un'altra barra del desktop hanno cambiato posto o misura:
+    /// la striscia della barra potrebbe essere un'altra. Rifà le misure solo se e' cambiata davvero.
+    /// </summary>
+    public static bool RecheckStrip()
+    {
+        if (!_barShown || _bar is null)
+        {
+            return false;
+        }
+
+        Rectangle strip = _bar.Query(EdgeOf(BarSide), OnEdge(HomeBounds), Px(RailWidth96));
+        if (strip == Reserved)
+        {
+            return false;
+        }
+
+        Refresh();
+        return true;
+    }
+
+    /// <summary>La finestra della barra ha cambiato posto o misura: va detto a Windows, fa parte della registrazione.</summary>
+    public static void BarMoved() => _bar?.Moved();
+
+    /// <summary>Esplora risorse e' ripartito e delle barre del desktop non se ne ricorda piu': la barra si registra di nuovo.</summary>
+    public static void BarForgotten()
+    {
+        if (_bar is null)
+        {
+            return;
+        }
+
+        _bar.Forget();
+        if (_barShown)
+        {
+            Refresh();
+        }
+    }
+
+    /// <summary>Rilegge gli schermi e rifà le misure (da richiamare anche quando cambia il lato della barra o la sua striscia).</summary>
     public static void Refresh()
     {
         _layout = Layout();
@@ -121,7 +208,7 @@ internal static class ScreenGeometry
             var info = new MONITORINFO { Size = Marshal.SizeOf<MONITORINFO>() };
             if (Win32.GetMonitorInfo(monitor, ref info))
             {
-                screens.Add(new ScreenInfo(info.Monitor, info.Work, (info.Flags & Win32.MONITORINFOF_PRIMARY) != 0));
+                screens.Add(new ScreenInfo(monitor, info.Monitor, info.Work, (info.Flags & Win32.MONITORINFOF_PRIMARY) != 0));
             }
 
             return true;
@@ -139,16 +226,51 @@ internal static class ScreenGeometry
         // lo schermo principale; se per qualche motivo non e' segnalato, vale il primo dell'elenco
         ScreenInfo home = screens.FirstOrDefault(screen => screen.Primary, screens[0]);
         HomeBounds = home.Bounds;
-        WorkArea = home.Work;
+        _homeMonitor = home.Monitor;
         MonitorBounds = screens.Select(screen => screen.Bounds).OrderByDescending(bounds => bounds.Right).First();
         LeftmostBounds = screens.Select(screen => screen.Bounds).OrderBy(bounds => bounds.Left).First();
-        Side = ChooseSide(home, screens);
+
+        // La barra occupa (o lascia) la sua striscia: Windows cambia lo spazio di lavoro dentro la chiamata. Lo spazio
+        // senza la nostra striscia si rilegge e, se la barra c'e', la si rimette dentro
+        Reserved = _bar?.Place(_barShown, EdgeOf(BarSide), OnEdge(HomeBounds), Px(RailWidth96)) ?? Rectangle.Empty;
+        Rectangle work = ReadWorkArea(home.Monitor);
+        if (work.IsEmpty)
+        {
+            work = home.Work;
+        }
+
+        if (!Reserved.IsEmpty)
+        {
+            work = Rectangle.Union(work, Reserved);
+        }
+
+        WorkArea = work;
+        BarRect = Reserved.IsEmpty ? OnEdge(work) : Reserved;
+        Side = ChooseSide(new ScreenInfo(home.Monitor, home.Bounds, work, home.Primary), screens);
 
         // finestra aperta e barra insieme fanno mezza larghezza dello schermo; la barra sta sul bordo scelto
         int rail = Px(RailWidth96);
         int width = HomeBounds.Width / 2 - rail;
         int left = BarSide == BarSide.Left ? WorkArea.Left + rail : WorkArea.Right - rail - width;
         PanelRect = new Rectangle(left, WorkArea.Top, width, WorkArea.Height);
+    }
+
+    /// <summary>La striscia larga come la barra sul bordo scelto, per tutta l'altezza dell'area data.</summary>
+    private static Rectangle OnEdge(Rectangle area)
+    {
+        int rail = Px(RailWidth96);
+        return BarSide == BarSide.Left
+            ? new Rectangle(area.Left, area.Top, rail, area.Height)
+            : new Rectangle(area.Right - rail, area.Top, rail, area.Height);
+    }
+
+    /// <summary>Il bordo scelto, come lo chiama Windows (uno dei valori ABE_).</summary>
+    private static uint EdgeOf(BarSide side) => side == BarSide.Left ? Win32.ABE_LEFT : Win32.ABE_RIGHT;
+
+    private static Rectangle ReadWorkArea(IntPtr monitor)
+    {
+        var info = new MONITORINFO { Size = Marshal.SizeOf<MONITORINFO>() };
+        return Win32.GetMonitorInfo(monitor, ref info) ? info.Work : Rectangle.Empty;
     }
 
     /// <summary>

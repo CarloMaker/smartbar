@@ -22,6 +22,12 @@ internal sealed class IconOverlay : Form
     /// <summary>Un'icona: dove sta sullo schermo e che immagine ha.</summary>
     internal readonly record struct Badge(Rectangle Screen, Bitmap Icon);
 
+    /// <summary>
+    /// Sopra c'e' un programma a schermo intero: il velo non si mostra, e non si rimette sopra la barra, finche' non
+    /// e' finito (la barra sta sotto le finestre, e le icone non devono restare sole sopra il programma).
+    /// </summary>
+    public bool Covered { get; set; }
+
     public IconOverlay()
     {
         AutoScaleMode = AutoScaleMode.None;
@@ -66,6 +72,11 @@ internal sealed class IconOverlay : Form
     /// </summary>
     public void Follow(IntPtr rail, Rectangle screen, IEnumerable<Badge> badges)
     {
+        if (Covered)
+        {
+            return;
+        }
+
         _badges.Clear();
         _badges.AddRange(badges);
         Bounds = screen;

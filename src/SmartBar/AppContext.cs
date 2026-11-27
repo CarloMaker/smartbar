@@ -359,6 +359,11 @@ internal sealed class AppContext : ApplicationContext
                 return "ok";
             case "state":
                 return $"{window.State} pinned={(window.Pinned ? 1 : 0)} slot={window.Slot}";
+            case "tile":
+                // per le prove automatiche: dove sta la tessera di questa finestra sulla barra (sola lettura)
+                return _rail.TileScreenRect(window) is Rectangle tile
+                    ? $"ok {tile.Left} {tile.Top} {tile.Right} {tile.Bottom}"
+                    : "err niente tessera";
         }
 
         return "err comando sconosciuto";

@@ -61,9 +61,7 @@ def settled(hwnd, state_name, expected_rect):
 
 def tile_center(index, count):
     """Centro della tessera index-esima della barra, che in quel momento ne ha count."""
-    x, y, r, b = pp.rect(s.app_windows()[1])
-    tile_h = (b - y - 12 - (count - 1) * SLOT_GAP) / count
-    return (x + r) // 2, int(y + 6 + index * (tile_h + SLOT_GAP) + tile_h / 2)
+    return s.tile_center(index, count)
 
 
 def click_tile(index, count, button='left'):

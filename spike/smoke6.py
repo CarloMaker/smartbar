@@ -1,8 +1,8 @@
 # smoke6.py -- sesta prova automatica di SmartBar: la barra a sinistra o a destra, e i suoi margini.
 #   con la barra a sinistra sta sul bordo sinistro, le finestre aperte nella metà sinistra e parcheggiate oltre il
 #   bordo sinistro; cambiando lato (col comando, che dal menu fa lo stesso) tutto si ribalta e le finestre parcheggiate
-#   si spostano; la scelta resta salvata da un riavvio all'altro; con molte finestre parcheggiate la barra resta dentro
-#   i margini: sotto i pulsanti di chiusura delle finestre ingrandite, sopra la barra di Windows.
+#   si spostano; la scelta resta salvata da un riavvio all'altro; la barra copre tutto il bordo in altezza e, con
+#   molte finestre parcheggiate, le anteprime ci stanno dentro rimpicciolite, fino alla barra di Windows.
 # Tutto per comandi all'istanza di prova, senza mouse vero: si puo' girare accanto all'istanza dell'utente.
 # Usa una finestra di Blocco note e sedici di Mappa caratteri.
 # Per le misure di sicurezza vedere smoke.py.
@@ -21,12 +21,13 @@ TAG = 'smartbar-smoke6-%06x' % pp.random.getrandbits(24)
 
 
 def rail_on(side):
-    """La barra dell'istanza di prova sta sul bordo scelto e staccata di 56 pixel dall'alto dello spazio di lavoro?"""
+    """La barra dell'istanza di prova sta sul bordo scelto e copre tutta l'altezza dello spazio di lavoro?"""
     rail = s.rail_rect()
     work = s.work_area()
     if not rail:
         return False
-    return (rail[0] == work[0] if side == 'left' else rail[2] == work[2]) and rail[1] == work[1] + s.RAIL_TOP
+    return ((rail[0] == work[0] if side == 'left' else rail[2] == work[2])
+            and rail[1] == work[1] and rail[3] == work[3])
 
 
 def free_beyond(side):
@@ -78,7 +79,10 @@ def main():
         # --- barra a sinistra ---
         s.use_side('left')
         s.check('parcheggiata', s.cmd('park', notepad) == 'ok' and s.off_screen(notepad), f'rettangolo={pp.rect(notepad)}')
-        s.check('con la barra a sinistra sta sul bordo sinistro, staccata dall\'alto', rail_on('left'), f'barra={s.rail_rect()}')
+        s.check('con la barra a sinistra sta sul bordo sinistro, a tutta altezza', rail_on('left'), f'barra={s.rail_rect()}')
+        single = s.tile_rect(notepad)
+        s.check('la tessera sta in alto nella barra', bool(single) and single[1] <= s.rail_rect()[1] + s.PAD + 1,
+              f'tessera={single} barra={s.rail_rect()}')
         if free_beyond('left'):
             s.check('la finestra parcheggiata sta oltre il bordo sinistro (nessuno schermo piu' + chr(39) + 'a sinistra)',
                     parked_beyond(notepad, 'left'), f'rettangolo={pp.rect(notepad)}')
@@ -117,19 +121,20 @@ def main():
         s.check('dopo il riavvio la barra e' + chr(39) + ' ancora sul lato scelto (destro)', rail_on('right'), f'barra={s.rail_rect()}')
         s.use_side('left')
 
-        # --- margini con molte finestre parcheggiate ---
+        # --- la barra a tutta altezza con molte finestre parcheggiate ---
         s.cmd('release', notepad)
         parked = [h for h in charmaps if s.cmd('park', h) == 'ok']
         time.sleep(1.0)
         rail = s.rail_rect()
-        work = s.work_area()
         s.check('parcheggiate tutte le finestre di prova', len(parked) == MANY, f'parcheggiate={len(parked)}')
-        s.check('con tante finestre la barra resta sotto i pulsanti di chiusura delle finestre ingrandite',
-                bool(rail) and rail[0] == work[0] and rail[1] == work[1] + s.RAIL_TOP, f'barra={rail} spazio di lavoro={work}')
-        s.check('e non arriva sulla barra di Windows: finisce almeno 56 pixel sopra',
-                bool(rail) and rail[3] <= work[3] - s.RAIL_BOTTOM, f'barra={rail} spazio di lavoro={work}')
-        s.check('con 17 finestre parcheggiate le anteprime si sono rimpicciolite per starci',
-                bool(rail) and rail[3] - rail[1] < MANY * 90, f'barra={rail}')
+        s.check('con tante finestre la barra sta sempre sul bordo, a tutta altezza', rail_on('left'),
+                f'barra={rail} spazio di lavoro={s.work_area()}')
+        tiles = [s.tile_rect(h) for h in parked]
+        s.check('e le anteprime ci stanno tutte dentro: l\'ultima finisce prima della barra di Windows',
+                bool(rail) and all(tiles) and tiles[-1][3] <= rail[3] - s.PAD, f'ultima tessera={tiles[-1]} barra={rail}')
+        s.check('con %d finestre parcheggiate le anteprime si sono rimpicciolite per starci' % len(parked),
+                bool(single) and all(tiles) and all(t[3] - t[1] < single[3] - single[1] for t in tiles),
+                f'con una finestra alta {single[3] - single[1] if single else None}, con tante {sorted({t[3] - t[1] for t in tiles if t})}')
 
         s.cmd('restore-all')
         s.check('a fine prova le finestre di prova sono tornate a schermo', all(not s.off_screen(h) for h in charmaps))
